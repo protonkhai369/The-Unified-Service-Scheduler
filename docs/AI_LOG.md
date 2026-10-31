@@ -160,3 +160,123 @@ Gaps: the same-key race is tested only
 where the two appointments do not overlap (`23505`); the overlapping variant, which the spec allows
 to fail with `23P01` instead, is not exercised. "Fresh plain PostgreSQL ... becomes ready" is shown
 by the context starting on the container; the readiness endpoint itself was checked only on Supabase.
+
+## 2026-10-31 - add-api-foundation (OpenSpec change)
+
+Response conventions, one error pipeline (RFC 9457 problems with `code` and `requestId`),
+`X-Request-Id` and access log, and the read-only catalog endpoints. Driven through OpenSpec with
+Claude Code: explore, propose, human review of proposal/design/tasks, then `/opsx:apply`. The user
+worked in Vietnamese; the artifacts and code are in English.
+
+### Decisions taken with the user (explore and propose)
+
+- No response envelope: a successful body is the resource itself. The user asked about a generic
+  `ApiResponse<T>` wrapper. It was rejected because it would be a second error format beside
+  problem+json, an "always 200" envelope hides failures from `http_server_requests_seconds`, and the
+  name clashes with springdoc's `@ApiResponse`.
+- Collections are `{"items": [...]}`; `type` is `about:blank` and clients branch on `code`; the scope
+  is foundation plus catalog, so the error layer is proven over real endpoints.
+- The user asked for the error catalogue as an enum: `ErrorCode` holds each code's status and
+  default detail, plus the status-to-fallback rule (`forStatus`). The name stays `ErrorCode` rather
+  than `ErrorEnum` (renaming was offered).
+- During apply, the user asked to split the catalog into one service per resource:
+  `ServiceTypeService`/`ServiceTypeController` and `DealershipService`/`DealershipController`, with
+  one file per response record. The user then asked for layer packages; asked where (inside each
+  feature or shared at the project root), they chose inside each feature, so `catalog` now has
+  `controller`, `service`, `repository`, `entity` and `dto/response`, and the project stays packaged
+  by feature at the top level (recorded in AGENTS.md and config.yaml). After an explanation of why
+  `web` has two error entry points sharing one problem builder, the user had `web` split by
+  function into `web.error`, `web.filter` and `web.dto`. Pure refactors; the catalog tests passed unchanged before and after, and were themselves split into
+  `ServiceTypeIntegrationTest` and `DealershipIntegrationTest` with the same test methods.
+- Booking rules settled in explore, deferred to the booking change: start times on the slot grid
+  (`START_TIME_NOT_ON_GRID`), a server-generated idempotency key when the header is missing, a replay
+  of a cancelled appointment returns its current state, no cancellation after the start time
+  (`APPOINTMENT_ALREADY_STARTED`), `VEHICLE_ALREADY_BOOKED` as 409. The archived
+  `add-scheduler-database` proposal said the `Idempotency-Key` header would become required; the
+  user's later choice (optional, server-generated) supersedes it.
+
+### Decisions taken by the AI
+
+- `NOT_ACCEPTABLE` (406) dropped from the proposal: a client that refuses JSON cannot be promised a
+  problem+json body either; such responses fall under `REQUEST_REJECTED`.
+- Fixed `en` locale (`spring.web.locale-resolver: fixed`), so validation messages do not follow
+  `Accept-Language` or this machine's Vietnamese locale.
+- The shared test base runs a real server (`RANDOM_PORT`), because MockMvc never performs the
+  container's error dispatch to `/error`. Probe endpoints live in a configuration the base imports,
+  so all integration tests still share one context: the full run shows one PostgreSQL container and
+  one Tomcat start.
+- ECS structured logging is checked manually rather than in a test: reconfiguring logging inside the
+  shared context would disturb every other test's output capture.
+
+### Problems found during implementation
+
+- **Spring Framework 7 omits the problem `type`.** `ProblemDetail.type` now defaults to `null` and is
+  left out of the JSON (Spring 6 defaulted to `about:blank`). Found by
+  `unknownPathIsProblemWithEveryMember` failing with "No value at JSON path $.type"; confirmed by
+  disassembling `ProblemDetail`. `Problems.create` sets it explicitly.
+- **`hibernate.jdbc.time_zone: UTC` corrupted opening hours.** The first catalog run returned `opens`
+  `16:00` for a dealership stored as `08:00`. Root cause, shown with a six-line Java program: the
+  setting makes Hibernate read `time` values as UTC on 1970-01-01 and convert them to the JVM zone,
+  and this machine's zone `Asia/Saigon` was UTC+8 in 1970 (UTC+7 today), so 08:00 became 16:00. The
+  setting (from the skeleton) is removed with an explanatory comment; `Instant` maps to `timestamptz`
+  without it. The booking change must prove an `Instant` round trip on this non-UTC machine.
+- **The custom `/error` controller leaked into the OpenAPI document** with every HTTP method (Boot's
+  own error controller is hidden by springdoc; a replacement is not). Found by
+  `OpenApiIntegrationTest`; fixed with `@Hidden`.
+- **The spec-coverage guard passed before any implementation**, because the codes were already in the
+  specs. Proven able to fail by temporarily adding an unspecified constant `UNSPECIFIED_PROBE`:
+  `ErrorCodeTest` failed with "a spec under openspec/ defining `UNSPECIFIED_PROBE`"; the constant was
+  removed again.
+- Every other new test was watched failing for the expected reason first (missing header, missing
+  `code`, Boot's own `/error` JSON, 404 for the catalog endpoints before they existed).
+  `OpenApiIntegrationTest` was written after the endpoints, as a regression guard.
+
+### Verification
+
+- `./mvnw test`: `Tests run: 93, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS (54 existing,
+  39 new).
+- Manual run against Supabase (`./mvnw spring-boot:run`, read-only requests, readiness `UP`):
+  - with `LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs`, all 33 log lines were JSON, and
+    `GET /api/v1/dealerships` with `X-Request-Id: demo-1` logged
+    `{"message": "GET /api/v1/dealerships -> 200 (823 ms)", "requestId": "demo-1", ...}`;
+  - without it, the console line read
+    `... [demo-1] com.keyloop.scheduler.web.AccessLog : GET /api/v1/dealerships -> 200 (862 ms)`;
+  - the demo dealerships came back with `opens` `08:00`/`07:30` and `closes` `18:00`/`17:30`;
+  - `GET /api/v1/dealerships/999` returned `404` with `type` `about:blank`, `title` `Not Found`,
+    `detail` "Dealership 999 does not exist.", `instance`, `code` `DEALERSHIP_NOT_FOUND` and
+    `requestId` `demo-2`;
+  - `/swagger-ui/index.html` returned 200.
+
+| Spec scenario | Evidence |
+| --- | --- |
+| api-conventions: Single resource | `DealershipIntegrationTest.returnsDealershipWithItsOwnBaysAndTechniciansIncludingInactiveOnes` |
+| api-conventions: Failure is never a 200 | `DealershipIntegrationTest.unknownDealershipIsNotFoundProblem` |
+| api-conventions: Non-empty / Empty collection | `ServiceTypeIntegrationTest.listsServiceTypesInIdOrderWithTheirDurations`, `returnsAnEmptyCollectionAsEmptyItems` |
+| error-responses: Unknown resource | `DealershipIntegrationTest.unknownDealershipIsNotFoundProblem`; manual run |
+| error-responses: Framework error | `ErrorHandlingIntegrationTest.unknownPathIsProblemWithEveryMember` |
+| error-responses: Request id in the body matches the header | `unknownPathIsProblemWithEveryMember`, `reportsFailuresOutsideSpringMvcAsProblems` |
+| error-responses: Failure before any endpoint is reached | `ErrorHandlingIntegrationTest.reportsFailuresOutsideSpringMvcAsProblems` |
+| error-responses: Value of the wrong type / Body that is not JSON | `namesTheFieldHoldingAValueOfTheWrongType`, `rejectsBodyThatIsNotJson` |
+| error-responses: Malformed path variable | `DealershipIntegrationTest.nonNumericDealershipIdIsValidationProblem` |
+| error-responses: Missing query parameter or header | `namesMissingQueryParameter`, `namesMissingHeader` |
+| error-responses: Wrong method / Unsupported content type / Other client error | `ServiceTypeIntegrationTest.serviceTypesRejectOtherMethodsListingGet`, `rejectsUnsupportedContentType`, `keepsTheStatusOfOtherClientErrors`; `ErrorCodeTest` |
+| error-responses: Unexpected exception (unchanged requirement) | `hidesUnexpectedExceptionsAndLogsTheirStackTrace` |
+| dealership-catalog: Service types with durations | `ServiceTypeIntegrationTest.listsServiceTypesInIdOrderWithTheirDurations` |
+| dealership-catalog: Dealership summary / Opening hours format | `listsDealershipsWithTheirZoneAndOpeningHours`; manual run on demo data |
+| dealership-catalog: Technician qualifications visible / Inactive qualification not listed | `listsOnlyActiveQualificationsInAscendingOrder` |
+| dealership-catalog: Inactive resources still listed / Only the dealership's own resources | `returnsDealershipWithItsOwnBaysAndTechniciansIncludingInactiveOnes` |
+| dealership-catalog: Unknown dealership / Id that is not a positive integer | `unknownDealershipIsNotFoundProblem`, `nonNumericDealershipIdIsValidationProblem`, `nonPositiveDealershipIdIsValidationProblem` |
+| observability: Caller-supplied id is propagated / Unsafe id is replaced | `RequestIdIntegrationTest`, `RequestIdFilterTest` |
+| observability: Request logged | `RequestIdIntegrationTest.writesOneAccessLogLineCarryingTheRequestId`; manual run |
+| observability: Container deployment (ECS) | manual run with `LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs` |
+
+Gaps:
+- "Business error" (`NO_AVAILABILITY`) and the booking-named "Several invalid fields" scenario are
+  shown only through equivalents (the `ApiException` path and the probe body) until the booking
+  change.
+- The ECS scenario names docker compose, which does not exist yet; it was checked with the
+  environment variable on `spring-boot:run` and is not automated.
+- Swagger UI's rendering was not inspected visually: the page is served and the OpenAPI document
+  holds the three paths and their response schemas.
+- The dealership detail's fixed number of queries (four) holds by construction; no test counts
+  statements.

@@ -12,7 +12,9 @@ and cURL. The brief is `KeyloopCodingChallange.pdf` (not committed).
 **Current state:** the application code was reset to a bare skeleton on 2026-10-30 (entry point,
 configuration, base test). `openspec/specs/` describes the target behaviour; features are rebuilt
 through OpenSpec changes. The database schema (`V1__scheduler_schema.sql`) and demo data exist since
-change `add-scheduler-database`; there are no JPA entities or REST endpoints yet.
+change `add-scheduler-database`. Change `add-api-foundation` added the error pipeline, the request id
+and access log, and the read-only catalog endpoints (`/api/v1/service-types`, `/api/v1/dealerships`)
+with their JPA entities. Booking and availability do not exist yet.
 
 ## Commands
 
@@ -81,6 +83,12 @@ whole toolkit to another project with `scripts/install-agent-skills.sh`.
   booking that loses the race retries in a new transaction.
 - Keep scheduling rules (time ranges, allocation, slot finding) in a pure domain package with no
   Spring or JPA, so they stay unit-testable.
+- Package by feature at the top level (`catalog`, `appointment`, `availability`, ...); inside a
+  feature, package by layer: `controller`, `service`, `repository`, `entity`, `dto/request` and
+  `dto/response` (e.g. `catalog.controller`, `catalog.dto.response`). The pure scheduling domain is
+  not layered. The shared `web` package is split by function: `web.error` (`ErrorCode`,
+  `ApiException`, the exception handler, the /error endpoint, `Problems`), `web.filter` (request id,
+  access log) and `web.dto` (`ItemsResponse`).
 - Schema changes are new Flyway migrations (`V2__...` onwards); never edit a migration that has been
   applied anywhere. `ddl-auto` stays `validate`.
 - Every table lives in schema `scheduler`, never `public`: Supabase exposes `public` to anonymous
@@ -89,11 +97,22 @@ whole toolkit to another project with `scripts/install-agent-skills.sh`.
 - Demo data lives only in `src/main/resources/db/demo/R__demo_data.sql`, a repeatable migration that
   inserts only when `dealership` is empty. Never put demo rows in `db/migration` or in a versioned
   migration. The application loads both locations; tests load `db/migration` only.
-- Database tests extend `DatabaseIntegrationTest` (one shared context and container, tables
-  truncated before each test) and are named `*IntegrationTest`; Surefire runs them with
-  `./mvnw test`. Assert database rejections by SQLSTATE and constraint name (`SqlAssertions`).
-- Store `Instant` / `timestamptz`; convert to the dealership's zone only at the API edge.
-- Errors are RFC 9457 problem+json with a stable `code`; add new codes to the relevant spec.
+- Database and HTTP tests extend `DatabaseIntegrationTest` (one shared context, container and
+  embedded server on a random port, tables truncated before each test; `RestTestClient http`) and
+  are named `*IntegrationTest`; Surefire runs them with `./mvnw test`. Assert database rejections by
+  SQLSTATE and constraint name (`SqlAssertions`). Test-only endpoints and filters go in
+  `ProbeConfiguration`, which the base imports; importing a configuration into one test class would
+  start a second context and container.
+- Store `Instant` / `timestamptz`; convert to the dealership's zone only at the API edge. Do not set
+  `hibernate.jdbc.time_zone`: it shifts `time` columns on machines whose zone is not UTC.
+- A successful response body is the resource itself (no `{success, data}` envelope); collections are
+  `ItemsResponse<T>` (`{"items": [...]}`) ordered by id.
+- Errors are RFC 9457 problem+json with a stable `code`. Services fail with
+  `new ApiException(ErrorCode.X, args)`; a new code is a new `ErrorCode` constant added together with
+  the spec text that defines it (`ErrorCodeTest` fails otherwise). The pure domain never throws
+  `ApiException`.
+- Never annotate a controller with `@Validated`: parameter constraints rely on Spring MVC's built-in
+  method validation, and `@Validated` would turn their violations into 500s.
 - TDD applies to new work. Do not delete or rewrite existing, tested code just to redo it test-first.
 - Log non-trivial AI decisions and verification steps in `docs/AI_LOG.md`; "AI Engineering &
   Verification" is a scored criterion of the assessment.
