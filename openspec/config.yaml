@@ -1,0 +1,63 @@
+schema: spec-driven
+
+# Shown to the AI whenever it creates a proposal, spec, design or task list.
+context: |
+  Project: Unified Service Scheduler - Keyloop technical assessment, Scenario A (domain: Ownership).
+  A backend REST service that replaces manual booking of dealership service appointments.
+  Only the backend layer is implemented; clients are stubbed via OpenAPI/Swagger UI and cURL examples.
+
+  Current state (2026-10-30): application code was reset to a skeleton (entry point, configuration,
+  Testcontainers base test). openspec/specs describes the TARGET behaviour; it is rebuilt through
+  changes. The architecture below is the intended design, not existing code.
+
+  Core requirements from the brief (acceptance criteria):
+  1. Resource-constrained booking: request an appointment for a vehicle, service type and
+     dealership at a desired time.
+  2. Real-time availability check: before confirming, a ServiceBay AND a qualified Technician
+     must both be free for the ENTIRE service duration.
+  3. Confirmed appointment record: persist an Appointment linking customer, vehicle,
+     technician and service bay.
+
+  Tech stack (do not change without a proposal):
+  - Java 21 (LTS), Spring Boot 4.1.2 (Spring Framework 7, Hibernate 7, Jackson 3), Maven wrapper
+  - PostgreSQL 17 hosted on Supabase (session pooler, credentials in git-ignored .env) with Flyway
+    migrations; JPA with ddl-auto=validate (Flyway owns the schema). btree_gist is available.
+    Tests never touch Supabase: they run on a Testcontainers postgres:17-alpine.
+  - springdoc-openapi 3.1.1 (Swagger UI), Micrometer + Prometheus, Spring Boot Actuator
+  - Tests: JUnit Jupiter + AssertJ; Testcontainers (real PostgreSQL) for integration tests
+
+  Architecture and key decisions:
+  - Package by feature under com.keyloop.scheduler: scheduling (pure domain, no Spring),
+    appointment, availability, catalog, customer, config, web.
+  - Double booking is prevented by PostgreSQL EXCLUDE constraints (btree_gist, tstzrange '[)')
+    on service_bay_id and technician_id for CONFIRMED rows. The application checks availability
+    first; on SQLSTATE 23P01 it retries allocation in a NEW transaction (TransactionTemplate),
+    up to scheduler.max-booking-attempts.
+  - Time is stored as UTC timestamptz (Instant); opening hours and API output use the
+    dealership's time zone. Ranges are half-open so back-to-back bookings are allowed.
+  - Aggregates reference each other by id (no JPA associations on Appointment).
+  - Errors are RFC 9457 problem+json with a stable `code` and a `requestId`.
+  - Idempotency-Key header on POST /api/v1/appointments, with a SHA-256 request fingerprint.
+
+  Engineering with AI is an evaluated criterion: every non-trivial change should leave a trail
+  (proposal/design/tasks) that shows how the AI was directed and how its output was verified.
+
+rules:
+  proposal:
+    - Tie every change back to the Scenario A acceptance criteria or to a "build for the future"
+      concern (scalability, performance, reliability, maintainability, observability).
+    - Include a Non-goals section; the deadline is fixed, so scope must stay small.
+    - State any assumption made about an ambiguous requirement; it must also go into
+      docs/SYSTEM_DESIGN.md.
+  specs:
+    - Describe externally observable behaviour (HTTP status, error code, persisted state),
+      never class names.
+    - Cover concurrency and time-zone edge cases for anything touching booking or availability.
+  design:
+    - Explain how correctness holds under concurrent requests, not only in the happy path.
+    - Name the metrics and log events the change adds or affects.
+  tasks:
+    - Every task that changes behaviour has a matching test task (unit for pure domain,
+      Testcontainers integration test for persistence or HTTP behaviour).
+    - End with a verification task: ./mvnw test passes and the relevant spec scenarios are
+      demonstrated.

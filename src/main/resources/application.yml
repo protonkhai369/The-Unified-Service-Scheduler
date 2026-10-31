@@ -1,0 +1,52 @@
+spring:
+  application:
+    name: service-scheduler
+  config:
+    # Database credentials live in a git-ignored .env file (see .env.example), e.g. for Supabase.
+    import: optional:file:.env[.properties]
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/scheduler}
+    username: ${DB_USER:scheduler}
+    password: ${DB_PASSWORD:scheduler}
+    hikari:
+      # Supabase's session pooler caps client connections per project; stay well below it.
+      maximum-pool-size: ${DB_POOL_SIZE:5}
+      schema: ${DB_SCHEMA:scheduler}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Flyway owns the schema; Hibernate only checks the entities match it.
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: ${DB_SCHEMA:scheduler}
+        jdbc:
+          time_zone: UTC
+  flyway:
+    # Everything lives in a dedicated schema, never "public": Supabase exposes "public" through its
+    # REST API (PostgREST) and grants the anonymous role access to new tables there. This backend
+    # only uses JDBC, so its tables stay out of the API entirely. Flyway creates the schema.
+    default-schema: ${DB_SCHEMA:scheduler}
+    schemas: ${DB_SCHEMA:scheduler}
+    locations: classpath:db/migration
+  mvc:
+    problemdetails:
+      enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          # Stop routing traffic to an instance that cannot reach its database.
+          include: readinessState,db
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
