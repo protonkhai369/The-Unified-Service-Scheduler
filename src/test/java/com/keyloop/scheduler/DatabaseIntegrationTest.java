@@ -9,19 +9,27 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.test.web.servlet.client.RestTestClient;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import com.keyloop.scheduler.web.ProbeConfiguration;
+
 /**
- * Base for tests that need the real schema. Every subclass shares one Spring context and one
- * PostgreSQL container; Flyway applies only the schema migrations (never the demo data), and every
- * scheduler table is emptied before each test.
+ * Base for tests that need the real schema or the real HTTP stack. Every subclass shares one Spring
+ * context, one PostgreSQL container and one embedded server on a random port; Flyway applies only the
+ * schema migrations (never the demo data), and every scheduler table is emptied before each test.
+ * A real server rather than MockMvc, because only a servlet container forwards failures to /error.
  */
-@SpringBootTest(properties = "spring.flyway.locations=classpath:db/migration")
-@Import(TestcontainersConfiguration.class)
+@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT,
+        properties = "spring.flyway.locations=classpath:db/migration")
+@AutoConfigureRestTestClient
+@Import({ TestcontainersConfiguration.class, ProbeConfiguration.class })
 public abstract class DatabaseIntegrationTest {
 
     protected static final String SCHEMA = "scheduler";
@@ -37,6 +45,10 @@ public abstract class DatabaseIntegrationTest {
 
     @Autowired
     private PostgreSQLContainer postgres;
+
+    /** Sends real HTTP requests to the embedded server. */
+    @Autowired
+    protected RestTestClient http;
 
     protected DatabaseFixtures fixtures;
 

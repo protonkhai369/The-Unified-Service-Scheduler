@@ -51,25 +51,41 @@ public final class DatabaseFixtures {
     }
 
     public long bay(long dealershipId, String name) {
-        return jdbc.sql("INSERT INTO service_bay (dealership_id, name, active) VALUES (:dealership, :name, true) RETURNING id")
+        return bay(dealershipId, name, true);
+    }
+
+    public long bay(long dealershipId, String name, boolean active) {
+        return jdbc.sql("INSERT INTO service_bay (dealership_id, name, active) VALUES (:dealership, :name, :active) RETURNING id")
                 .param("dealership", dealershipId)
                 .param("name", name)
+                .param("active", active)
                 .query(Long.class)
                 .single();
     }
 
     public long technician(long dealershipId, String name) {
-        return jdbc.sql("INSERT INTO technician (dealership_id, name, active) VALUES (:dealership, :name, true) RETURNING id")
+        return technician(dealershipId, name, true);
+    }
+
+    public long technician(long dealershipId, String name, boolean active) {
+        return jdbc.sql("INSERT INTO technician (dealership_id, name, active) VALUES (:dealership, :name, :active) RETURNING id")
                 .param("dealership", dealershipId)
                 .param("name", name)
+                .param("active", active)
                 .query(Long.class)
                 .single();
     }
 
     public void skill(long technicianId, long serviceTypeId) {
-        jdbc.sql("INSERT INTO technician_skill (technician_id, service_type_id, active) VALUES (:technician, :serviceType, true)")
+        skill(technicianId, serviceTypeId, true);
+    }
+
+    /** A qualification; {@code active = false} is one that has been retired. */
+    public void skill(long technicianId, long serviceTypeId, boolean active) {
+        jdbc.sql("INSERT INTO technician_skill (technician_id, service_type_id, active) VALUES (:technician, :serviceType, :active)")
                 .param("technician", technicianId)
                 .param("serviceType", serviceTypeId)
+                .param("active", active)
                 .update();
     }
 

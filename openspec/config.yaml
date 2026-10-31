@@ -9,8 +9,10 @@ context: |
   Current state (2026-10-31): application code was reset to a skeleton on 2026-10-30 (entry point,
   configuration, Testcontainers base test). openspec/specs describes the TARGET behaviour; it is
   rebuilt through changes. The database schema (V1) and demo data exist since change
-  add-scheduler-database; JPA entities and endpoints do not. The architecture below is otherwise the
-  intended design, not existing code.
+  add-scheduler-database. Change add-api-foundation added the error pipeline (ErrorCode enum,
+  ApiException, GlobalExceptionHandler, /error controller), X-Request-Id and access log, and the
+  read-only catalog endpoints with their JPA entities. Booking and availability do not exist yet; the
+  architecture below is otherwise the intended design, not existing code.
 
   Core requirements from the brief (acceptance criteria):
   1. Resource-constrained booking: request an appointment for a vehicle, service type and
@@ -30,7 +32,9 @@ context: |
 
   Architecture and key decisions:
   - Package by feature under com.keyloop.scheduler: scheduling (pure domain, no Spring),
-    appointment, availability, catalog, customer, config, web.
+    appointment, availability, catalog, customer, config, web. Inside a feature, package by layer:
+    controller, service, repository, entity, dto/request, dto/response (e.g. catalog.dto.response).
+    scheduling is not layered; web is split by function: web.error, web.filter, web.dto.
   - Double booking is prevented by PostgreSQL EXCLUDE constraints (btree_gist, tstzrange '[)')
     on service_bay_id, technician_id and vehicle_id for CONFIRMED rows (appointment_no_bay_overlap,
     appointment_no_technician_overlap, appointment_no_vehicle_overlap). The application checks
@@ -40,12 +44,16 @@ context: |
     its Data API); extensions in schema extensions; schema changes only as new versioned migrations,
     never edits to applied ones. Demo data only in db/demo/R__demo_data.sql, a repeatable migration
     that inserts only into an empty dealership table; tests load db/migration only.
-  - Database tests extend DatabaseIntegrationTest (shared context and container, tables truncated per
-    test), are named *IntegrationTest and run under Surefire with ./mvnw test.
+  - Database and HTTP tests extend DatabaseIntegrationTest (shared context, container and embedded
+    server on a random port, tables truncated per test, RestTestClient), are named *IntegrationTest
+    and run under Surefire with ./mvnw test. Test-only endpoints live in ProbeConfiguration.
   - Time is stored as UTC timestamptz (Instant); opening hours and API output use the
     dealership's time zone. Ranges are half-open so back-to-back bookings are allowed.
   - Aggregates reference each other by id (no JPA associations on Appointment).
-  - Errors are RFC 9457 problem+json with a stable `code` and a `requestId`.
+  - Errors are RFC 9457 problem+json with a stable `code` and a `requestId`. Every code is an
+    ErrorCode enum constant (status + default detail) added together with the spec that defines it;
+    services throw ApiException(ErrorCode, args).
+  - Successful responses are the resource itself (no envelope); collections are {"items": [...]}.
   - Idempotency-Key header on POST /api/v1/appointments, with a SHA-256 request fingerprint.
 
   Engineering with AI is an evaluated criterion: every non-trivial change should leave a trail

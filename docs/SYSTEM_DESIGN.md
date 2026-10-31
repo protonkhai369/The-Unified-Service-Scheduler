@@ -2,7 +2,7 @@
 
 Unified Service Scheduler, Keyloop technical assessment, Scenario A. This document grows with each
 OpenSpec change; the behaviour itself is specified in `openspec/specs/`. Sections still to come
-(booking flow, availability search, API, observability) arrive with the changes that build them.
+(booking flow, availability search, metrics) arrive with the changes that build them.
 
 ## Data model
 
@@ -108,6 +108,82 @@ tests load `db/migration` only and run on a throwaway PostgreSQL 17 container, n
 A repeatable migration rather than `V100__demo_data.sql`: once V100 is applied, Flyway treats any
 later `V2__...` as an ignored lower version and fails validation.
 
+## API
+
+Built by OpenSpec change `add-api-foundation`. Swagger UI: `/swagger-ui.html`.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/v1/service-types` | `{"items": [...]}` of `id`, `code`, `name`, `durationMinutes` |
+| `GET /api/v1/dealerships` | `{"items": [...]}` of `id`, `name`, `timeZone`, `opens`, `closes` (`HH:mm`, local) |
+| `GET /api/v1/dealerships/{id}` | the dealership plus `serviceBays` and `technicians` (with `qualifiedServiceTypeIds`) |
+
+### Response conventions
+
+- A successful body is the resource itself. There is no `{success, data}` envelope: the HTTP status
+  carries the outcome, so `http_server_requests_seconds`, proxies and retries see real error statuses.
+- Collections are `{"items": [...]}`, ordered by id, so pagination can be added without breaking
+  clients.
+- Every response carries `X-Request-Id`: the caller's value when it matches `[A-Za-z0-9._-]{1,64}`,
+  otherwise a new UUID.
+
+### One error pipeline
+
+Every failure ends as the same RFC 9457 problem, whichever layer detects it:
+
+```
+ request ─▶ RequestIdFilter ─▶ other filters ─▶ DispatcherServlet ─▶ controller ─▶ service
+              │ id → header, MDC,      │                  │                           │
+              │ request attribute      │                  │ Spring MVC exceptions     │ ApiException(ErrorCode)
+              │                        │                  ▼                           ▼
+              │                        │        GlobalExceptionHandler (@RestControllerAdvice)
+              │                        │ exception                 │
+              │                        ▼ escapes                   │
+              │              container error dispatch              │
+              └─(runs again, ─▶ ProblemErrorController (/error)    │
+                 same id)                  │                       │
+                                           ▼                       ▼
+                         Problems.create: type, title, status, detail, instance,
+                                          code, requestId (+ errors for VALIDATION_FAILED)
+```
+
+```json
+{
+  "type": "about:blank",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "Dealership 999 does not exist.",
+  "instance": "/api/v1/dealerships/999",
+  "code": "DEALERSHIP_NOT_FOUND",
+  "requestId": "7c2f9d0a-1b3e-4c5f-8a6b-9d0e1f2a3b4c"
+}
+```
+
+All codes are constants of the `ErrorCode` enum, each with its status and default detail. A unit test
+fails when a constant is missing from the specs under `openspec/`.
+
+| Code | Status | When |
+| --- | --- | --- |
+| `VALIDATION_FAILED` | 400 | invalid body field, query parameter, path variable or header, or unreadable JSON; `errors` names each input |
+| `NOT_FOUND` | 404 | no endpoint for the path |
+| `METHOD_NOT_ALLOWED` | 405 | path exists, method does not (`Allow` lists the methods) |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 | request body content type not accepted |
+| `REQUEST_REJECTED` | other 4xx | fallback, keeps the original status |
+| `INTERNAL_ERROR` | 500 (other 5xx) | anything unexpected; generic detail, stack trace only in the log |
+| `DEALERSHIP_NOT_FOUND` | 404 | unknown dealership id |
+
+Booking and availability add their codes (`NO_AVAILABILITY`, `SLOT_CONTENTION`, ...) with the
+changes that build them.
+
+### Request id and logs
+
+- Every console line carries the id as `[<requestId>]` (`logging.pattern.correlation`). With
+  `LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs`, the ECS JSON lines carry it as a `requestId` field.
+- One access log line per `/api/**` request: `GET /api/v1/dealerships -> 200 (12 ms)`. Health
+  probes are not logged.
+- A 4xx problem is logged at WARN without a stack trace. A 5xx problem is logged at ERROR with the
+  exception, which is the only place its message appears.
+
 ## Assumptions
 
 Ambiguities in the brief, resolved as follows:
@@ -118,3 +194,8 @@ Ambiguities in the brief, resolved as follows:
 - A dealership has the same opening hours every day and no holidays.
 - Idempotency keys are global (there is no client identity yet) and live as long as their
   appointment.
+- A technician whose qualification for a service type is inactive is not qualified for it.
+  Inactive bays and technicians are still listed by the catalog, with `active: false`.
+- Catalog lists are small and returned unpaginated; the `items` wrapper leaves room for pagination.
+- Clients branch on an error's `code`, never on `title` or `detail`. Messages are English and may
+  change.

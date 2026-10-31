@@ -20,8 +20,8 @@ spring:
     properties:
       hibernate:
         default_schema: ${DB_SCHEMA:scheduler}
-        jdbc:
-          time_zone: UTC
+        # No hibernate.jdbc.time_zone: Instant already maps to timestamptz without it, and with it set to
+        # UTC Hibernate reads `time` columns (opening hours) shifted by the JVM zone's 1970 offset.
   flyway:
     # Everything lives in a dedicated schema, never "public": Supabase exposes "public" through its
     # REST API (PostgREST) and grants the anonymous role access to new tables there. This backend
@@ -31,9 +31,15 @@ spring:
     # db/demo holds a repeatable migration that seeds demo reference data into an empty database.
     # Tests override this to classpath:db/migration only (DatabaseIntegrationTest).
     locations: classpath:db/migration,classpath:db/demo
-  mvc:
-    problemdetails:
-      enabled: true
+  web:
+    # Validation messages in English, whatever the caller's Accept-Language or the host's locale.
+    locale: en
+    locale-resolver: fixed
+
+logging:
+  pattern:
+    # The request's X-Request-Id (set by RequestIdFilter) in every console line.
+    correlation: "[%X{requestId:-}] "
 
 management:
   endpoints:
