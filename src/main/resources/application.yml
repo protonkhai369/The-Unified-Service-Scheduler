@@ -28,7 +28,9 @@ spring:
     # only uses JDBC, so its tables stay out of the API entirely. Flyway creates the schema.
     default-schema: ${DB_SCHEMA:scheduler}
     schemas: ${DB_SCHEMA:scheduler}
-    locations: classpath:db/migration
+    # db/demo holds a repeatable migration that seeds demo reference data into an empty database.
+    # Tests override this to classpath:db/migration only (DatabaseIntegrationTest).
+    locations: classpath:db/migration,classpath:db/demo
   mvc:
     problemdetails:
       enabled: true
