@@ -6,9 +6,11 @@ context: |
   A backend REST service that replaces manual booking of dealership service appointments.
   Only the backend layer is implemented; clients are stubbed via OpenAPI/Swagger UI and cURL examples.
 
-  Current state (2026-10-30): application code was reset to a skeleton (entry point, configuration,
-  Testcontainers base test). openspec/specs describes the TARGET behaviour; it is rebuilt through
-  changes. The architecture below is the intended design, not existing code.
+  Current state (2026-10-31): application code was reset to a skeleton on 2026-10-30 (entry point,
+  configuration, Testcontainers base test). openspec/specs describes the TARGET behaviour; it is
+  rebuilt through changes. The database schema (V1) and demo data exist since change
+  add-scheduler-database; JPA entities and endpoints do not. The architecture below is otherwise the
+  intended design, not existing code.
 
   Core requirements from the brief (acceptance criteria):
   1. Resource-constrained booking: request an appointment for a vehicle, service type and
@@ -30,9 +32,16 @@ context: |
   - Package by feature under com.keyloop.scheduler: scheduling (pure domain, no Spring),
     appointment, availability, catalog, customer, config, web.
   - Double booking is prevented by PostgreSQL EXCLUDE constraints (btree_gist, tstzrange '[)')
-    on service_bay_id and technician_id for CONFIRMED rows. The application checks availability
-    first; on SQLSTATE 23P01 it retries allocation in a NEW transaction (TransactionTemplate),
-    up to scheduler.max-booking-attempts.
+    on service_bay_id, technician_id and vehicle_id for CONFIRMED rows (appointment_no_bay_overlap,
+    appointment_no_technician_overlap, appointment_no_vehicle_overlap). The application checks
+    availability first; on a bay/technician 23P01 it retries allocation in a NEW transaction
+    (TransactionTemplate), up to scheduler.max-booking-attempts.
+  - Schema conventions: every table in schema scheduler, never public (Supabase exposes public through
+    its Data API); extensions in schema extensions; schema changes only as new versioned migrations,
+    never edits to applied ones. Demo data only in db/demo/R__demo_data.sql, a repeatable migration
+    that inserts only into an empty dealership table; tests load db/migration only.
+  - Database tests extend DatabaseIntegrationTest (shared context and container, tables truncated per
+    test), are named *IntegrationTest and run under Surefire with ./mvnw test.
   - Time is stored as UTC timestamptz (Instant); opening hours and API output use the
     dealership's time zone. Ranges are half-open so back-to-back bookings are allowed.
   - Aggregates reference each other by id (no JPA associations on Appointment).
@@ -59,5 +68,5 @@ rules:
   tasks:
     - Every task that changes behaviour has a matching test task (unit for pure domain,
       Testcontainers integration test for persistence or HTTP behaviour).
-    - End with a verification task: ./mvnw test passes and the relevant spec scenarios are
-      demonstrated.
+    - "End with a verification task: ./mvnw test passes and the relevant spec scenarios are
+      demonstrated."

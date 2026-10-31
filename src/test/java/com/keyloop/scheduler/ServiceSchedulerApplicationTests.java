@@ -1,12 +1,9 @@
 package com.keyloop.scheduler;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 
-@Import(TestcontainersConfiguration.class)
-@SpringBootTest
-class ServiceSchedulerApplicationTests {
+/** Starts the whole application on the test container, with Hibernate validating the migrated schema. */
+class ServiceSchedulerApplicationTests extends DatabaseIntegrationTest {
 
     @Test
     void contextLoads() {

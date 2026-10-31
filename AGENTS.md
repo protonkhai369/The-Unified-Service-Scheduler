@@ -11,7 +11,8 @@ and cURL. The brief is `KeyloopCodingChallange.pdf` (not committed).
 
 **Current state:** the application code was reset to a bare skeleton on 2026-10-30 (entry point,
 configuration, base test). `openspec/specs/` describes the target behaviour; features are rebuilt
-through OpenSpec changes.
+through OpenSpec changes. The database schema (`V1__scheduler_schema.sql`) and demo data exist since
+change `add-scheduler-database`; there are no JPA entities or REST endpoints yet.
 
 ## Commands
 
@@ -80,7 +81,17 @@ whole toolkit to another project with `scripts/install-agent-skills.sh`.
   booking that loses the race retries in a new transaction.
 - Keep scheduling rules (time ranges, allocation, slot finding) in a pure domain package with no
   Spring or JPA, so they stay unit-testable.
-- Schema changes are new Flyway migrations. `ddl-auto` stays `validate`.
+- Schema changes are new Flyway migrations (`V2__...` onwards); never edit a migration that has been
+  applied anywhere. `ddl-auto` stays `validate`.
+- Every table lives in schema `scheduler`, never `public`: Supabase exposes `public` to anonymous
+  callers through its Data API. Extensions go in schema `extensions`. V1 already revokes the
+  `anon`/`authenticated` roles' default privileges, so new tables need no extra grants or RLS.
+- Demo data lives only in `src/main/resources/db/demo/R__demo_data.sql`, a repeatable migration that
+  inserts only when `dealership` is empty. Never put demo rows in `db/migration` or in a versioned
+  migration. The application loads both locations; tests load `db/migration` only.
+- Database tests extend `DatabaseIntegrationTest` (one shared context and container, tables
+  truncated before each test) and are named `*IntegrationTest`; Surefire runs them with
+  `./mvnw test`. Assert database rejections by SQLSTATE and constraint name (`SqlAssertions`).
 - Store `Instant` / `timestamptz`; convert to the dealership's zone only at the API edge.
 - Errors are RFC 9457 problem+json with a stable `code`; add new codes to the relevant spec.
 - TDD applies to new work. Do not delete or rewrite existing, tested code just to redo it test-first.
