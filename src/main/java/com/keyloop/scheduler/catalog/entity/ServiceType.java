@@ -7,7 +7,10 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import lombok.Getter;
+
 /** A kind of service with a fixed duration. */
+@Getter
 @Entity
 @Table(name = "service_type")
 public class ServiceType {
@@ -26,21 +29,5 @@ public class ServiceType {
     private int durationMinutes;
 
     protected ServiceType() {
-    }
-
-    public Long getId() {
-        return this.id;
-    }
-
-    public String getCode() {
-        return this.code;
-    }
-
-    public String getName() {
-        return this.name;
-    }
-
-    public int getDurationMinutes() {
-        return this.durationMinutes;
     }
 }

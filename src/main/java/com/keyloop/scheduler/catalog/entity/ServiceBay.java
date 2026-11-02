@@ -7,7 +7,10 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import lombok.Getter;
+
 /** A service bay of one dealership; any active bay can host any service type. */
+@Getter
 @Entity
 @Table(name = "service_bay")
 public class ServiceBay {
@@ -27,21 +30,5 @@ public class ServiceBay {
     private boolean active;
 
     protected ServiceBay() {
-    }
-
-    public Long getId() {
-        return this.id;
-    }
-
-    public long getDealershipId() {
-        return this.dealershipId;
-    }
-
-    public String getName() {
-        return this.name;
-    }
-
-    public boolean isActive() {
-        return this.active;
     }
 }

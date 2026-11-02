@@ -1,8 +1,8 @@
 # System Design
 
 Unified Service Scheduler, Keyloop technical assessment, Scenario A. This document grows with each
-OpenSpec change; the behaviour itself is specified in `openspec/specs/`. Sections still to come
-(booking flow, availability search, metrics) arrive with the changes that build them.
+OpenSpec change; the behaviour itself is specified in `openspec/specs/`. The availability search
+section arrives with the change that builds it.
 
 ## Data model
 
@@ -58,8 +58,8 @@ to fail fast with a precise error; they are never the only guard.
 | An idempotency key books at most once | `appointment_idempotency_key_unique` | `23505` |
 | Key and fingerprint format | `appointment_idempotency_key_format`, `appointment_request_fingerprint_format` | `23514` |
 | VIN format and uniqueness; positive durations; closing after opening | `vehicle_vin_format`, `vehicle_vin_unique`, `service_type_duration_positive`, `dealership_hours_order` | `23514` / `23505` |
-| Bay and technician are active; technician's skill is active; slot inside opening hours | application (booking change) | `409` / `422` |
-| The vehicle belongs to the customer | application (booking change); deliberately not a foreign key because vehicles change owners | `422` |
+| Bay and technician are active; technician's skill is active; slot inside opening hours | application (booking) | `409` / `422` |
+| The vehicle belongs to the customer | application (booking); deliberately not a foreign key because vehicles change owners | `422` |
 
 The three exclusion constraint names are a contract with the booking flow: a bay or technician
 conflict means "try another allocation", a vehicle conflict means `VEHICLE_ALREADY_BOOKED`.
@@ -80,8 +80,9 @@ for the first transaction's outcome:
 This holds at the default `READ COMMITTED` isolation level, without `SERIALIZABLE`, advisory locks
 or `SELECT ... FOR UPDATE`. The same mechanism makes two requests with the same idempotency key
 commit exactly once (`23505` for the loser). `ConcurrentInsertIntegrationTest` reproduces both
-races with two connections on two threads. A booking that loses a bay/technician race retries
-allocation in a new transaction (booking change).
+races with two connections on two threads. The booking flow puts a queue in front of these
+constraints so that concurrent requests do not fail because of each other, and retries a lost race
+in a new transaction (see [Booking](#booking)).
 
 ### Where the data lives
 
@@ -110,13 +111,33 @@ later `V2__...` as an ignored lower version and fails validation.
 
 ## API
 
-Built by OpenSpec change `add-api-foundation`. Swagger UI: `/swagger-ui.html`.
+Built by OpenSpec changes `add-api-foundation` and `add-appointment-booking`. Swagger UI:
+`/swagger-ui.html`.
 
 | Endpoint | Returns |
 | --- | --- |
 | `GET /api/v1/service-types` | `{"items": [...]}` of `id`, `code`, `name`, `durationMinutes` |
 | `GET /api/v1/dealerships` | `{"items": [...]}` of `id`, `name`, `timeZone`, `opens`, `closes` (`HH:mm`, local) |
 | `GET /api/v1/dealerships/{id}` | the dealership plus `serviceBays` and `technicians` (with `qualifiedServiceTypeIds`) |
+| `POST /api/v1/appointments` | `201` + `Location`: the booked appointment; optional `Idempotency-Key` header |
+| `GET /api/v1/appointments/{id}` | the appointment in its current state |
+| `POST /api/v1/appointments/{id}/cancel` | `200`: the cancelled appointment (idempotent) |
+
+An appointment carries `id`, `status`, the four request ids, `serviceBay` and `technician`
+(`{id, name}`), and `startTime`/`endTime` with the dealership's offset plus its `timeZone`:
+
+```json
+{
+  "id": "9c99d593-4b58-4cdf-9e59-74a8b4e7b647",
+  "status": "CONFIRMED",
+  "dealershipId": 2, "customerId": 2, "vehicleId": 3, "serviceTypeId": 1,
+  "serviceBay": { "id": 4, "name": "Bay B" },
+  "technician": { "id": 4, "name": "Tran Thi Binh" },
+  "startTime": "2026-11-03T10:00:00+07:00",
+  "endTime": "2026-11-03T10:45:00+07:00",
+  "timeZone": "Asia/Ho_Chi_Minh"
+}
+```
 
 ### Response conventions
 
@@ -171,9 +192,19 @@ fails when a constant is missing from the specs under `openspec/`.
 | `REQUEST_REJECTED` | other 4xx | fallback, keeps the original status |
 | `INTERNAL_ERROR` | 500 (other 5xx) | anything unexpected; generic detail, stack trace only in the log |
 | `DEALERSHIP_NOT_FOUND` | 404 | unknown dealership id |
+| `SERVICE_TYPE_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `VEHICLE_NOT_FOUND`, `APPOINTMENT_NOT_FOUND` | 404 | unknown reference |
+| `VEHICLE_NOT_OWNED_BY_CUSTOMER` | 422 | the vehicle belongs to another customer |
+| `START_TIME_IN_PAST` | 422 | start not after now |
+| `OUTSIDE_OPENING_HOURS` | 422 | the service would start before opening or end after closing (local time) |
+| `START_TIME_NOT_ON_GRID` | 422 | start not a whole number of `scheduler.slot-step`s after opening (local time) |
+| `IDEMPOTENCY_KEY_REUSED` | 422 | the key was used for different booking parameters |
+| `NO_AVAILABILITY` | 409 | no active bay and qualified technician both free for the whole period |
+| `VEHICLE_ALREADY_BOOKED` | 409 | the vehicle has an overlapping confirmed appointment, at any dealership |
+| `SLOT_CONTENTION` | 409 | waited longer than `scheduler.booking-lock-timeout`, or lost every attempt |
+| `APPOINTMENT_ALREADY_STARTED` | 409 | cancelling at or after the start time |
 
-Booking and availability add their codes (`NO_AVAILABILITY`, `SLOT_CONTENTION`, ...) with the
-changes that build them.
+`422` means the request itself breaks a rule; `409` means the request is valid but the current state
+of resources prevents it. The availability search adds its codes with the change that builds it.
 
 ### Request id and logs
 
@@ -183,6 +214,136 @@ changes that build them.
   probes are not logged.
 - A 4xx problem is logged at WARN without a stack trace. A 5xx problem is logged at ERROR with the
   exception, which is the only place its message appears.
+
+## Booking
+
+Built by OpenSpec change `add-appointment-booking` (Scenario A core requirements 1-3).
+
+### Components
+
+```
+ AppointmentController ── POST /appointments ──▶ BookingService ── each attempt ──▶ BookingAttempt
+        │                                          │  replay check, validation          │ lock, allocate, insert
+        │ GET /{id}, POST /{id}/cancel             │  (read-only transaction)           │ (own transaction)
+        ▼                                          ▼                                    ▼
+ AppointmentService                         scheduling (pure domain)          BookingFailures
+   read view, conditional cancel            TimeRange, BusinessDay,           SQLSTATE + constraint
+                                            StartTimeRule, Allocator          → outcome
+```
+
+`scheduling` has no Spring or JPA dependency and is unit-tested on its own; the availability search
+will reuse it. Services translate its results (`StartTimeViolation`, an empty `Allocation`) into
+`ApiException`s.
+
+### Flow
+
+```
+POST /api/v1/appointments   [Idempotency-Key]
+ ├─ controller: @Valid body, header pattern ─────────────────────────────── 400 VALIDATION_FAILED
+ └─ BookingService (no transaction of its own)
+     ① key = header, or a random UUID; fingerprint = SHA-256("v1|ids|start instant")
+     ② key known? same fingerprint → 201 replay (current state); other → 422 IDEMPOTENCY_KEY_REUSED
+     ③ read-only tx: 404 dealership/customer/vehicle/service type, 422 ownership,
+                     422 in the past / outside opening hours / off the grid
+     ④ up to scheduler.max-booking-attempts (5) times, each in a NEW transaction:
+          lock_timeout; pg_advisory_xact_lock(dealership, local day)       ← queue
+          key known now? → replay          (a duplicate committed while this one waited)
+          vehicle overlaps at any dealership? → 409 VEHICLE_ALREADY_BOOKED
+          active bays, active qualified technicians, that day's confirmed appointments
+          Allocator → none → 409 NO_AVAILABILITY
+          INSERT + flush → COMMIT (releases the lock) → 201
+          database rejected it → BookingFailures (table below)
+     ⑤ every attempt lost → 409 SLOT_CONTENTION
+```
+
+The replay check (②) runs before the rules (③): a client whose first request succeeded but timed
+out may retry after the start time, and must get its appointment back rather than
+`START_TIME_IN_PAST`. `BookingService` has no transaction because PostgreSQL aborts a transaction
+after a constraint violation; a retry is only possible in a new one.
+
+### Time handling
+
+Times are instants everywhere between the API edges. The request's `startTime` must carry an offset
+and is converted to an `Instant` at once; responses convert back to the dealership's zone. The
+dealership's zone is used only for calendar questions, in `BusinessDay`:
+
+- opening hours: `ZonedDateTime.of(date, opens, zone)` to `ZonedDateTime.of(date, closes, zone)`,
+  so daylight saving time is applied (London on 2026-03-29: 08:00-18:00 local is 07:00Z-17:00Z);
+- the slot grid: minutes from `opens` to the local clock time of the start must be a multiple of
+  `scheduler.slot-step`. A client at `+05:45` booking 10:00 in Saigon (`08:45+05:45`) is on the grid;
+  an epoch-based grid would not be;
+- the local day: from local midnight to the next. An appointment fits inside one day's opening hours,
+  so "that day's appointments" is a `start_at` range served by `appointment_dealership_start_idx`.
+
+The JVM's default zone is never read; the suite also passes with `-Duser.timezone=Asia/Kathmandu`.
+
+### Three layers against double booking
+
+| Layer | Role | Without it |
+| --- | --- | --- |
+| `pg_advisory_xact_lock(hash('booking:<dealership>:<local date>'))` | queue: bookings that could compete for a bay or technician run one after another, each seeing the previous commits | allocation is deterministic, so concurrent requests pick the same pair: one winner per round, `SLOT_CONTENTION` while bays are still free |
+| Exclusion constraints (V1) | **the guarantee**: no overlapping confirmed rows, whatever writes them | double bookings |
+| Retry on fresh data, up to 5 attempts | recovers when a writer bypassed the lock, or two dealerships deadlock on one vehicle | a `500` or `409` although a free pair existed |
+
+Bays and technicians belong to one dealership and an appointment never crosses local midnight, so
+two bookings that can collide on a bay or technician always share the lock key; other dealerships
+and days run in parallel. The lock is held for a few indexed reads and one insert (a 20-request
+burst completes in under a second in the tests), against a real capacity of a few bays times about
+20 slots per day. It lives in PostgreSQL, so it also serialises several application instances, and
+it is transaction-scoped, so `COMMIT`/`ROLLBACK` release it, including through Supabase's session
+pooler. Waiting is bounded by `lock_timeout` (`scheduler.booking-lock-timeout`, 3 s), which must
+stay above PostgreSQL's `deadlock_timeout` (1 s) so that a deadlock is reported as such.
+
+`BookingFailures` reads the SQLSTATE and constraint name from PostgreSQL's own error, never the
+message:
+
+| Database error | Outcome |
+| --- | --- |
+| `55P03` lock not available | `409 SLOT_CONTENTION`, no retry |
+| `40P01` deadlock detected | lost race → next attempt |
+| `23505` / `23P01`, idempotency key now known | replay (same fingerprint) or `422 IDEMPOTENCY_KEY_REUSED` |
+| `23P01` `appointment_no_vehicle_overlap` | `409 VEHICLE_ALREADY_BOOKED` |
+| `23P01` bay or technician overlap; `23505` key whose owner rolled back | lost race → next attempt |
+| anything else | `500 INTERNAL_ERROR` |
+
+The key lookup comes before the constraint name: a duplicate request that collided with its own
+original on the vehicle is a replay, not `VEHICLE_ALREADY_BOOKED`.
+
+A deadlock is possible because two inserts that do not share a lock (one vehicle booked at two
+dealerships at the same instant) each write their GiST index entry and then wait for the other's
+exclusion check. PostgreSQL aborts one; its retry finds the survivor's row. The concurrency test
+reproduces this intermittently, and `BookingFailuresTest` covers the classification deterministically.
+
+### Cancellation
+
+One conditional statement decides:
+`UPDATE ... SET status = 'CANCELLED' WHERE id = ? AND status = 'CONFIRMED' AND start_at > now`.
+A concurrent second cancellation waits for the row lock, re-checks its condition on the committed row
+under `READ COMMITTED`, changes nothing and answers `200` with the cancelled appointment. Zero rows
+changed on a still confirmed appointment means it has started: `409 APPOINTMENT_ALREADY_STARTED`.
+Cancelling does not take the booking lock; a booking running at that moment may still decline the
+pair, which is conservative, never a double booking.
+
+### Metrics and log events
+
+- `scheduler_bookings_total{outcome}`: one per booking request that passed request validation:
+  `confirmed`, `replayed`, `no_availability`, `contention`, `rejected` (any other booking error
+  code), `error` (an unexpected `500`).
+  Requests rejected with `400` are visible only in `http_server_requests_seconds`.
+- `scheduler_booking_conflicts_total`: lost races. With the lock in place it stays near 0; a rising
+  value means something writes appointments without taking the lock.
+- `http_server_requests_seconds` exports histogram buckets for latency percentiles.
+- INFO `Appointment <id> confirmed: dealership, bay, technician, start/end, attempt`; INFO
+  `Booking replayed`; INFO `Appointment <id> cancelled`; WARN `Booking attempt <n> lost a race on
+  <constraint>`. Customers appear only as ids.
+
+## Code conventions
+
+- DTOs are Java records; each response has a static `of()` mapper. Mappings convert time zones and
+  combine several sources, which is shorter and type-checked as plain Java (no MapStruct).
+- JPA entities use Lombok `@Getter` and nothing else from Lombok: no setters (state changes go
+  through factories such as `Appointment.confirmed` and conditional updates), no generated
+  `equals`/`hashCode`/`toString`, no builders (OpenSpec change `adopt-lombok-getters`).
 
 ## Assumptions
 
@@ -199,3 +360,16 @@ Ambiguities in the brief, resolved as follows:
 - Catalog lists are small and returned unpaginated; the `items` wrapper leaves room for pagination.
 - Clients branch on an error's `code`, never on `title` or `detail`. Messages are English and may
   change.
+- Start times lie on a grid of `scheduler.slot-step` (default 30 minutes), anchored at the
+  dealership's opening time in its local time zone.
+- An appointment fits inside one day's opening hours, so it never crosses local midnight.
+- A start time equal to the current instant is already in the past; cancellation is allowed only
+  strictly before the start time.
+- `startTime` must carry an offset (`Z` or `±hh:mm`); a local date-time without one is ambiguous and
+  rejected.
+- Two requests carry "the same booking parameters" when dealership, customer, vehicle, service type
+  and start instant are equal, whatever offset notation was used.
+- Replaying the key of a cancelled appointment returns it as it is now (`CANCELLED`), not a new
+  booking. A request without a key gets a server-generated one and is never deduplicated.
+- Vehicle ownership is checked when booking; a later change of owner does not affect existing
+  appointments. A vehicle cannot hold two overlapping appointments, even at different dealerships.

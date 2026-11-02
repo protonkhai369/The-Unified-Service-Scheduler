@@ -2,6 +2,10 @@ package com.keyloop.scheduler;
 
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -144,8 +148,65 @@ public final class DatabaseFixtures {
                 .single();
     }
 
+    /**
+     * A dealership ready for bookings: one service type of the given duration, {@code bays} active
+     * bays and {@code technicians} active technicians qualified for it, created in name order (so
+     * ids ascend with the names "Bay 1", "Bay 2", ... and "Technician 1", ...).
+     */
+    public Workshop workshop(String name, String timeZone, LocalTime opens, LocalTime closes, int durationMinutes,
+            int bays, int technicians) {
+        long dealershipId = dealership(name, timeZone, opens, closes);
+        long serviceTypeId = serviceType("SERVICE_" + nextSequence(), durationMinutes);
+        List<Long> bayIds = new ArrayList<>();
+        for (int i = 1; i <= bays; i++) {
+            bayIds.add(bay(dealershipId, "Bay " + i));
+        }
+        List<Long> technicianIds = new ArrayList<>();
+        for (int i = 1; i <= technicians; i++) {
+            long technicianId = technician(dealershipId, "Technician " + i);
+            skill(technicianId, serviceTypeId);
+            technicianIds.add(technicianId);
+        }
+        return new Workshop(dealershipId, serviceTypeId, List.copyOf(bayIds), List.copyOf(technicianIds));
+    }
+
+    /** The JSON body of {@code POST /api/v1/appointments}. */
+    public static Map<String, Object> bookingRequest(long dealershipId, long customerId, long vehicleId,
+            long serviceTypeId, String startTime) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("dealershipId", dealershipId);
+        body.put("customerId", customerId);
+        body.put("vehicleId", vehicleId);
+        body.put("serviceTypeId", serviceTypeId);
+        body.put("startTime", startTime);
+        return body;
+    }
+
     private int nextSequence() {
         return ++sequence;
+    }
+
+    /** What {@link #workshop} created; lists are in id order. */
+    public record Workshop(long dealershipId, long serviceTypeId, List<Long> bayIds, List<Long> technicianIds) {
+
+        public long bay(int number) {
+            return bayIds.get(number - 1);
+        }
+
+        public long technician(int number) {
+            return technicianIds.get(number - 1);
+        }
+
+        /** A confirmed appointment in this workshop on the given bay and technician. */
+        public NewAppointment appointment(long customerId, long vehicleId, int bayNumber, int technicianNumber,
+                OffsetDateTime startAt, OffsetDateTime endAt) {
+            return NewAppointment.confirmed(dealershipId, customerId, vehicleId, serviceTypeId, bay(bayNumber),
+                    technician(technicianNumber), startAt, endAt);
+        }
+
+        public Map<String, Object> request(long customerId, long vehicleId, String startTime) {
+            return bookingRequest(dealershipId, customerId, vehicleId, serviceTypeId, startTime);
+        }
     }
 
     /** The columns of an appointment insert; the idempotency key is passed separately. */

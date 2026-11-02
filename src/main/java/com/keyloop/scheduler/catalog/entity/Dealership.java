@@ -9,7 +9,10 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import lombok.Getter;
+
 /** A dealership with one daily opening window, expressed in its own time zone. */
+@Getter
 @Entity
 @Table(name = "dealership")
 public class Dealership {
@@ -32,25 +35,5 @@ public class Dealership {
     private LocalTime closes;
 
     protected Dealership() {
-    }
-
-    public Long getId() {
-        return this.id;
-    }
-
-    public String getName() {
-        return this.name;
-    }
-
-    public String getTimeZone() {
-        return this.timeZone;
-    }
-
-    public LocalTime getOpens() {
-        return this.opens;
-    }
-
-    public LocalTime getCloses() {
-        return this.closes;
     }
 }
