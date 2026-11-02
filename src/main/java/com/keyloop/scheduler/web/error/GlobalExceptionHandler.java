@@ -15,6 +15,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.util.StringUtils;
+import org.springframework.validation.method.ParameterErrors;
 import org.springframework.validation.method.ParameterValidationResult;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -108,6 +109,15 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             }
             case HandlerMethodValidationException invalid -> {
                 for (ParameterValidationResult result : invalid.getParameterValidationResults()) {
+                    // A @Valid body validated together with constrained parameters: name its fields, as
+                    // MethodArgumentNotValidException does when the body is the only thing validated.
+                    if (result instanceof ParameterErrors body) {
+                        body.getFieldErrors().forEach(error ->
+                                errors.add(new InputError(error.getField(), String.valueOf(error.getDefaultMessage()))));
+                        body.getGlobalErrors().forEach(error ->
+                                errors.add(new InputError(error.getObjectName(), String.valueOf(error.getDefaultMessage()))));
+                        continue;
+                    }
                     String name = parameterName(result.getMethodParameter());
                     result.getResolvableErrors().forEach(error ->
                             errors.add(new InputError(name, String.valueOf(error.getDefaultMessage()))));

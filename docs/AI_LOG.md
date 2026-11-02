@@ -280,3 +280,195 @@ Gaps:
   holds the three paths and their response schemas.
 - The dealership detail's fixed number of queries (four) holds by construction; no test counts
   statements.
+
+## 2026-11-02 - add-appointment-booking (OpenSpec change)
+
+Booking, reading and cancelling appointments (Scenario A core requirements 1-3), the pure
+`scheduling` domain, idempotency and booking metrics. Driven through OpenSpec with Claude Code:
+explore, propose, human review, then `/opsx:apply` with tests written before each implementation
+task. The user worked in Vietnamese; the artifacts and code are in English.
+
+### Decisions taken with the user (explore and propose)
+
+- The user asked why there is no `ApiResponse` wrapper; the reasons recorded in `add-api-foundation`
+  were explained again and the decision was kept.
+- Cancelling an appointment that has started is `409 APPOINTMENT_ALREADY_STARTED` (the request is
+  valid; the resource's state forbids it), not `422`.
+- Cancellation and the booking metrics are in this change; the availability search is the next one.
+- `scheduler.max-booking-attempts` is 5 (the AI proposed 3).
+- The user asked how to stay correct and fast under a burst. The AI showed that deterministic
+  allocation (lowest bay, lightest technician) makes concurrent requests pick the same pair, so a
+  retry-only design confirms one booking per round and answers `SLOT_CONTENTION` while bays are still
+  free. Of three options (retry only, random choice on retry, a queue per dealership and local day),
+  the user chose the queue: `pg_advisory_xact_lock` in front of the exclusion constraints, which stay
+  the guarantee.
+- The user asked about conflicts between time zones. The rules agreed, all written into the spec:
+  - instants are used inside the application;
+  - the dealership's zone is used only for opening hours, the slot grid and the local day;
+  - a client at `+05:45` is checked on the dealership's clock;
+  - one vehicle cannot be booked at two dealerships at the same instant, while the same clock time
+    in two zones is not a conflict.
+- Settled in the earlier explore and now specified:
+  - the replay check runs before the start-time rules;
+  - a database conflict first looks the idempotency key up, so a duplicate request that collided
+    with its original on the vehicle is replayed rather than reported as `VEHICLE_ALREADY_BOOKED`.
+
+### Decisions taken by the AI
+
+- Rule order: in the past, then outside opening hours, then off the grid ("we are closed then" says
+  more than "pick another minute").
+- A lock timeout (`55P03`) ends the booking with `SLOT_CONTENTION` without retrying.
+- Cancellation is one conditional `UPDATE`, so concurrent cancellations both answer `200` and no
+  optimistic-lock exception can become a `500`.
+- The spec scenario "Parallel requests exceeding capacity" was tightened from "`NO_AVAILABILITY` or
+  `SLOT_CONTENTION`" to exactly 18 `NO_AVAILABILITY`, which the queue makes deterministic.
+- The observability spec already required `http_server_requests_seconds` histogram buckets, which
+  were not configured; this change adds them.
+- "Now" comes from a `Clock` bean. Tests use a `MutableClock` registered by `ProbeConfiguration`, so
+  the context stays shared (one container, one Tomcat for the whole suite).
+- The manual demo ran on a throwaway PostgreSQL container, not on Supabase, so the 20-request burst
+  left no rows in the shared demo database. This deviates from task 9.4, which said to cancel them.
+
+### Problems found during implementation
+
+- **Deadlock between two dealerships (found by a test).**
+  - Symptom: `concurrentBookingsOfOneVehicleAtTwoDealerships` failed with a `500`. The log showed
+    `40P01 deadlock detected ... while checking exclusion constraint`.
+  - Cause: two bookings of one vehicle at two dealerships do not share a lock. Each inserted its GiST
+    index entry and then waited for the other's exclusion check.
+  - Fix: the deadlock victim is a lost race, so `BookingFailures` now retries it, and the retry
+    answers `VEHICLE_ALREADY_BOOKED`.
+  - Test: `BookingFailuresTest` covers the classification with hand-built PostgreSQL errors. The
+    integration test hits the deadlock only when both inserts coincide (1 of 5 repeated runs).
+  - Recorded in design.md: `booking-lock-timeout` (3 s) must stay above PostgreSQL's
+    `deadlock_timeout` (1 s).
+- **Stale classes from the IDE.** `ErrorCodeTest` reported 6 tests after a seventh was added.
+  `javap` showed the class in `target/test-classes` without the new method and with Eclipse-style
+  lambda names. VS Code's Java extension compiles into `target/`, and its newer timestamps made
+  Maven skip recompiling. Every verification run since then uses `./mvnw clean test`.
+- **Body errors under method validation.** The `Idempotency-Key` header carries a `@Pattern`, so
+  Spring MVC validates the `@Valid` body as part of method validation. It then reports the body's
+  errors as `ParameterErrors` inside `HandlerMethodValidationException`, and the handler would have
+  named them after the Java parameter (`request`). `GlobalExceptionHandler` now names each body
+  field, as the error-responses spec requires (`severalInvalidFields`, `missingField`).
+- **OpenAPI documented the booking as `200`.** springdoc cannot see the status inside a
+  `ResponseEntity`; `@ResponseStatus(CREATED)` documents the `201`. The extended
+  `OpenApiIntegrationTest` caught it.
+- **PostgreSQL driver scope.** Reading the violated constraint from `PSQLException` needs the driver
+  at compile scope; it was `runtime`.
+- **Test-side binding.** pgjdbc cannot infer a SQL type for `java.time.Instant` passed through
+  `JdbcClient`, so the test passes an `OffsetDateTime`. Hibernate binds `Instant` itself, so
+  production queries are unaffected.
+- **Demo script error.** The first manual burst also sent three junk requests, because `psql`'s
+  `INSERT 0 20` status line was read as vehicle ids (two `400`s, one duplicate vehicle). The burst was
+  rerun with exactly 20 ids; only the clean run is reported below.
+
+### Verification
+
+- `./mvnw clean test`: `Tests run: 203, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS (96 before
+  this change, 107 new).
+  - The whole run used one Tomcat start and one PostgreSQL container.
+  - The two `500` log lines in the run come from the error-pipeline probes
+    (`secret internal detail`, `secret filter detail`).
+- `./mvnw test -DargLine=-Duser.timezone=Asia/Kathmandu`: 203 passed, with log timestamps at
+  `+05:45`. So no code reads the JVM's zone, and `Instant` round-trips on a non-UTC JVM.
+- `BookingConcurrencyIntegrationTest` five times in a row: 7/7 each time, 26.9-36.9 s per run
+  including context start. Per test in the last run:
+  - 20-request burst: 0.68 s;
+  - lock-timeout test: 2.4 s;
+  - lost race: 2.3 s;
+  - one vehicle at two dealerships: 1.4 s (the run that deadlocked).
+- `openspec validate add-appointment-booking --strict` and `openspec validate --all --strict`: valid.
+- Manual run (`spring-boot:run` on a throwaway `postgres:17-alpine` with the demo data):
+  - `POST` for Duc's Focus at Saigon, `2026-11-03T10:00:00+07:00`, `Idempotency-Key: demo-1` →
+    `201`, `Location: /api/v1/appointments/9c99d593-...`, Bay B and Tran Thi Binh, `startTime`
+    `2026-11-03T10:00:00+07:00`, `endTime` `10:45:00+07:00`, `timeZone` `Asia/Ho_Chi_Minh`;
+  - the same request again → `201` with `Idempotent-Replayed: true` and the same id;
+  - the same key with 11:00 → `422 IDEMPOTENCY_KEY_REUSED`;
+  - cancel → `200` `CANCELLED`; cancel again → `200`; unknown id → `404`;
+  - 20 parallel requests for 20 vehicles at London 11:00Z (two qualified technicians) → `2 × 201`,
+    `18 × 409 NO_AVAILABILITY`, 1.5 s wall time including `curl` start-up; bays 1 and 2 with two
+    different technicians;
+  - `/actuator/prometheus`: `scheduler_bookings_total` confirmed 5, replayed 1, rejected 1,
+    no_availability 37, contention 0; `scheduler_booking_conflicts_total` 0;
+    `http_server_requests_seconds_bucket` present;
+  - Swagger UI served (`200`); `/v3/api-docs` lists the three appointment paths, `201` for the
+    booking and the optional `Idempotency-Key` header.
+
+| Scenario | Test |
+| --- | --- |
+| Book a service appointment: Successful booking / End time derived from duration | `AppointmentBookingIntegrationTest.successfulBooking`, `endTimeDerivedFromServiceDuration` |
+| Bay and technician available: all seven scenarios | `resourceBusyForPartOfThePeriod`, `baysFreeButNoQualifiedTechnicianFree`, `unqualifiedOrInactiveTechniciansAreNeverAllocated`, `inactiveBaysAreNeverAllocated`, `resourcesOfAnotherDealershipAreNeverAllocated`, `backToBackBookingsShareResources`, `cancelledAppointmentsDoNotOccupyResources` |
+| No double booking: Parallel requests exceeding / within capacity | `BookingConcurrencyIntegrationTest.parallelRequestsExceedingCapacity`, `parallelRequestsWithinCapacity` |
+| No double booking: Concurrent requests in different offsets | `concurrentRequestsInDifferentOffsets` |
+| No double booking: Waiting too long for its turn | `waitingTooLongForItsTurn` |
+| No double booking: Lost race is retried on fresh data | `lostRaceIsRetriedOnFreshData` (deterministic: uncommitted writer, `pg_stat_activity`) |
+| No double booking: Overlapping insert bypassing the application | existing `AppointmentConstraintsIntegrationTest` (bay overlap, `23P01`) |
+| Booking request validation: all twelve scenarios and rule precedence | `BookingValidationIntegrationTest` (one test each, plus `unknownReferenceIsReportedBeforeStartTimeRules`) |
+| Technician workload balancing: four scenarios | `lighterDayWins`, `cancelledWorkDoesNotCount`, `tiesBrokenByTechnicianId`, `lowestFreeBayWins` (+ `nextBayWinsWhenTheFirstIsBusy`) |
+| Confirmed appointment record: four scenarios | `AppointmentQueryIntegrationTest` |
+| Idempotent booking retries: six sequential scenarios | `IdempotencyIntegrationTest` |
+| Idempotent booking retries: Concurrent duplicates | `BookingConcurrencyIntegrationTest.concurrentDuplicates` |
+| Appointment cancellation: five scenarios | `AppointmentCancellationIntegrationTest` |
+| One booking per vehicle at a time: three sequential scenarios / concurrent | `sameVehicleAtTheSameTime`, `sameInstantAtDealershipsInDifferentTimeZones`, `sameClockTimeIsNotTheSameInstant` / `concurrentBookingsOfOneVehicleAtTwoDealerships`, `BookingFailuresTest.deadlockIsALostRace` |
+| Booking times in the dealership's time zone: four scenarios | `clientInAnotherOffset`, `gridEvaluatedAtTheDealership`, `openingHoursFollowDaylightSavingTime`, `bookingOnADaylightSavingDay`; unit: `BusinessDayTest` |
+| observability Booking metrics: six scenarios | `BookingMetricsIntegrationTest` (confirmed, replayed, rejected, `400` not counted, buckets); lost race in `lostRaceIsRetriedOnFreshData` |
+| error-responses: Business error / Several invalid fields | `noAvailabilityCounted` and the `409` tests; `BookingValidationIntegrationTest.severalInvalidFields` |
+
+Gaps:
+- ~~A booking that ends in an unexpected `500` increases no `scheduler_bookings_total` series.~~
+  Resolved before archiving: asked to choose between counting it as `rejected`, narrowing the spec
+  or adding an outcome, the user chose a new `error` outcome. The spec delta, design and tasks were
+  updated; `BookingMetricsIntegrationTest.unexpectedFailureCounted` failed first (`expected: 1.0 but
+  was: 0.0`; the `500` came from `ZoneRulesException: Unknown time-zone ID: Mars/Olympus`), then
+  passed. `./mvnw clean test`: 204 tests, 0 failures.
+- Swagger UI's "Try it out" was not clicked; the page is served and booking was exercised with cURL.
+- The deadlock path is reached by the integration test only when the two inserts coincide; the
+  classification itself is covered deterministically by `BookingFailuresTest`.
+- Expected 4xx booking outcomes are still logged at WARN (open question in design.md).
+
+## 2026-11-02 - adopt-lombok-getters (OpenSpec change)
+
+The user asked why the code has no mappers, builders, Lombok or MapStruct. The AI explained the
+existing choice: records with static `of()` mappers, which it had taken over from `add-api-foundation`
+without recording it as a decision. It offered three options, and the user chose the middle one: Lombok
+`@Getter` on JPA entities only, through a small proposal.
+
+### Decisions
+
+- `@Getter` only. No `@Setter`: entities change state through factories and conditional updates.
+  No `@Data`/`@EqualsAndHashCode`: a hash over mutable fields breaks entities in sets and Hibernate's
+  identity. No `@ToString`. No `@Builder`: it would allow `Appointment` rows that bypass
+  `confirmed(...)`, such as a new appointment created as `CANCELLED` or without timestamps.
+- No MapStruct. The appointment mapping converts instants to the dealership's zone and combines three
+  sources, so MapStruct would need Java code inside `expression` strings, which is longer than
+  `of()` and not checked by the IDE.
+- `TechnicianSkill` gets `@Getter` on `active` only. Class-level `@Getter` would add a public
+  `getId()` that returns the key record, while its two id-derived getters stay hand-written.
+- Lombok runs from an explicit `maven-compiler-plugin` processor path rather than with
+  `-proc:full`, because JDK 23+ (this machine) skips processors found only on the class path, and a
+  processor path runs Lombok and nothing else.
+- The change has no spec delta, because it changes no externally observable behaviour. Inventing a
+  requirement about Lombok would break the specs rule, so the change is to be archived with
+  `--skip-specs`, and `openspec validate` on it reports the missing delta.
+
+### Verification
+
+- Before and after, `javap -public` listed the getters of all eight entities. They are identical (44),
+  plus `Appointment.getVersion()` as designed. The generated methods carry `@lombok.Generated`.
+- 42 hand-written getters were removed.
+- `./mvnw clean test`: `Tests run: 204, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS.
+- `./mvnw -DskipTests package`: the repackaged jar holds 103 `BOOT-INF/lib` entries and no `lombok`
+  entry.
+
+## 2026-11-03 - Publish appointment booking from main
+
+- Fetched `origin/main` and created `feat/appointment-booking` directly at
+  `c11c95c`, preserving the pending booking and Lombok changes. The fetched main
+  tree matched the former branch tip, so no merge or cherry-pick was needed.
+- `openspec.cmd validate --all --strict`: 8 passed, 0 failed.
+- Maven ran with JDK 23 outside the restricted sandbox. `mvnw.cmd test` reported
+  204 tests, 0 failures, 154 errors, 0 skipped: Testcontainers could not find a
+  valid Docker environment. Full integration verification is therefore blocked;
+  the hosted database was not used. The other 50 tests passed.
+- Removed trailing blank lines in two specs flagged by `git diff --check`.

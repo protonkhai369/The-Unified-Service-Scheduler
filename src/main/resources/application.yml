@@ -41,7 +41,21 @@ logging:
     # The request's X-Request-Id (set by RequestIdFilter) in every console line.
     correlation: "[%X{requestId:-}] "
 
+scheduler:
+  # Bookings for one dealership and local day queue on a database lock; a booking that waits longer
+  # than this answers 409 SLOT_CONTENTION.
+  booking-lock-timeout: 3s
+  # Extra attempts only happen when something wrote an appointment without taking that lock.
+  max-booking-attempts: 5
+  # Start times lie on this grid, counted from the dealership's opening time in its own time zone.
+  slot-step: 30m
+
 management:
+  metrics:
+    distribution:
+      percentiles-histogram:
+        # Buckets for http_server_requests_seconds, so latency percentiles can be computed in Prometheus.
+        http.server.requests: true
   endpoints:
     web:
       exposure:

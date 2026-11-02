@@ -39,6 +39,17 @@ class ErrorCodeTest {
     void fillsTheDetailTemplate() {
         assertThat(ErrorCode.DEALERSHIP_NOT_FOUND.detail(999L)).isEqualTo("Dealership 999 does not exist.");
         assertThat(ErrorCode.VALIDATION_FAILED.detail()).isEqualTo("Request validation failed.");
+        assertThat(ErrorCode.APPOINTMENT_NOT_FOUND.detail("6f1c0a52-0000-4000-8000-000000000000"))
+                .isEqualTo("Appointment 6f1c0a52-0000-4000-8000-000000000000 does not exist.");
+        assertThat(ErrorCode.VEHICLE_NOT_OWNED_BY_CUSTOMER.detail(7L, 3L))
+                .isEqualTo("Vehicle 7 does not belong to customer 3.");
+    }
+
+    @Test
+    void bookingCodesUseConflictForResourceStateAndUnprocessableForBrokenRules() {
+        assertThat(ErrorCode.NO_AVAILABILITY.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.APPOINTMENT_ALREADY_STARTED.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(ErrorCode.START_TIME_NOT_ON_GRID.status()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
     }
 
     @Test

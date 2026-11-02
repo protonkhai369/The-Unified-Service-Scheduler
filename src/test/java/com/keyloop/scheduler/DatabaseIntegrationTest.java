@@ -9,6 +9,7 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
@@ -23,12 +24,15 @@ import com.keyloop.scheduler.web.ProbeConfiguration;
 /**
  * Base for tests that need the real schema or the real HTTP stack. Every subclass shares one Spring
  * context, one PostgreSQL container and one embedded server on a random port; Flyway applies only the
- * schema migrations (never the demo data), and every scheduler table is emptied before each test.
- * A real server rather than MockMvc, because only a servlet container forwards failures to /error.
+ * schema migrations (never the demo data), every scheduler table is emptied and the clock is reset to
+ * {@link MutableClock#TEST_START} before each test. A real server rather than MockMvc, because only a
+ * servlet container forwards failures to /error. Metrics export is on, so /actuator/prometheus works.
+ * The booking lock timeout is shorter than in production to keep the timeout test fast.
  */
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT,
-        properties = "spring.flyway.locations=classpath:db/migration")
+        properties = { "spring.flyway.locations=classpath:db/migration", "scheduler.booking-lock-timeout=2s" })
 @AutoConfigureRestTestClient
+@AutoConfigureMetrics
 @Import({ TestcontainersConfiguration.class, ProbeConfiguration.class })
 public abstract class DatabaseIntegrationTest {
 
@@ -46,6 +50,10 @@ public abstract class DatabaseIntegrationTest {
     @Autowired
     private PostgreSQLContainer postgres;
 
+    /** The application's clock; tests move it to check rules about "now". */
+    @Autowired
+    protected MutableClock clock;
+
     /** Sends real HTTP requests to the embedded server. */
     @Autowired
     protected RestTestClient http;
@@ -58,6 +66,7 @@ public abstract class DatabaseIntegrationTest {
     void resetSchedulerTables() {
         jdbc.sql("TRUNCATE TABLE " + SCHEDULER_TABLES + " RESTART IDENTITY CASCADE").update();
         fixtures = new DatabaseFixtures(jdbc);
+        clock.reset();
     }
 
     @AfterEach

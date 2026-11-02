@@ -6,13 +6,15 @@ context: |
   A backend REST service that replaces manual booking of dealership service appointments.
   Only the backend layer is implemented; clients are stubbed via OpenAPI/Swagger UI and cURL examples.
 
-  Current state (2026-10-31): application code was reset to a skeleton on 2026-10-30 (entry point,
+  Current state (2026-11-02): application code was reset to a skeleton on 2026-10-30 (entry point,
   configuration, Testcontainers base test). openspec/specs describes the TARGET behaviour; it is
   rebuilt through changes. The database schema (V1) and demo data exist since change
   add-scheduler-database. Change add-api-foundation added the error pipeline (ErrorCode enum,
   ApiException, GlobalExceptionHandler, /error controller), X-Request-Id and access log, and the
-  read-only catalog endpoints with their JPA entities. Booking and availability do not exist yet; the
-  architecture below is otherwise the intended design, not existing code.
+  read-only catalog endpoints with their JPA entities. Change add-appointment-booking added booking,
+  reading and cancelling appointments, the scheduling domain (TimeRange, BusinessDay, StartTimeRule,
+  Allocator), idempotency and booking metrics. The availability search does not exist yet; the
+  architecture below is otherwise the intended design.
 
   Core requirements from the brief (acceptance criteria):
   1. Resource-constrained booking: request an appointment for a vehicle, service type and
@@ -29,6 +31,8 @@ context: |
     Tests never touch Supabase: they run on a Testcontainers postgres:17-alpine.
   - springdoc-openapi 3.1.1 (Swagger UI), Micrometer + Prometheus, Spring Boot Actuator
   - Tests: JUnit Jupiter + AssertJ; Testcontainers (real PostgreSQL) for integration tests
+  - Lombok: @Getter on JPA entities only (no @Setter/@Data/@EqualsAndHashCode/@ToString/@Builder);
+    DTOs are records with static of() mappers; no MapStruct
 
   Architecture and key decisions:
   - Package by feature under com.keyloop.scheduler: scheduling (pure domain, no Spring),
@@ -37,9 +41,12 @@ context: |
     scheduling is not layered; web is split by function: web.error, web.filter, web.dto.
   - Double booking is prevented by PostgreSQL EXCLUDE constraints (btree_gist, tstzrange '[)')
     on service_bay_id, technician_id and vehicle_id for CONFIRMED rows (appointment_no_bay_overlap,
-    appointment_no_technician_overlap, appointment_no_vehicle_overlap). The application checks
-    availability first; on a bay/technician 23P01 it retries allocation in a NEW transaction
-    (TransactionTemplate), up to scheduler.max-booking-attempts.
+    appointment_no_technician_overlap, appointment_no_vehicle_overlap). Each booking attempt first
+    takes pg_advisory_xact_lock on (dealership, local day), so concurrent requests queue rather than
+    fail because of each other; every writer of appointments must take it. On a bay/technician 23P01
+    or a deadlock (40P01) it retries allocation in a NEW transaction (TransactionTemplate), up to
+    scheduler.max-booking-attempts (5). Errors are classified by SQLSTATE and constraint name, never
+    by message. "Now" comes only from the Clock bean (tests use MutableClock).
   - Schema conventions: every table in schema scheduler, never public (Supabase exposes public through
     its Data API); extensions in schema extensions; schema changes only as new versioned migrations,
     never edits to applied ones. Demo data only in db/demo/R__demo_data.sql, a repeatable migration

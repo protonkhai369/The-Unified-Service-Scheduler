@@ -20,7 +20,28 @@ public enum ErrorCode {
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred."),
 
     // Catalog
-    DEALERSHIP_NOT_FOUND(HttpStatus.NOT_FOUND, "Dealership %d does not exist.");
+    DEALERSHIP_NOT_FOUND(HttpStatus.NOT_FOUND, "Dealership %d does not exist."),
+    SERVICE_TYPE_NOT_FOUND(HttpStatus.NOT_FOUND, "Service type %d does not exist."),
+
+    // Customers
+    CUSTOMER_NOT_FOUND(HttpStatus.NOT_FOUND, "Customer %d does not exist."),
+    VEHICLE_NOT_FOUND(HttpStatus.NOT_FOUND, "Vehicle %d does not exist."),
+
+    // Appointments: 422 when the request breaks a rule, 409 when the current state of resources prevents it
+    APPOINTMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "Appointment %s does not exist."),
+    VEHICLE_NOT_OWNED_BY_CUSTOMER(HttpStatus.UNPROCESSABLE_CONTENT, "Vehicle %d does not belong to customer %d."),
+    START_TIME_IN_PAST(HttpStatus.UNPROCESSABLE_CONTENT, "The start time must be in the future."),
+    OUTSIDE_OPENING_HOURS(HttpStatus.UNPROCESSABLE_CONTENT,
+            "The service must start and end within the dealership's opening hours."),
+    START_TIME_NOT_ON_GRID(HttpStatus.UNPROCESSABLE_CONTENT,
+            "The start time must be a whole number of slot steps after the dealership's opening time."),
+    IDEMPOTENCY_KEY_REUSED(HttpStatus.UNPROCESSABLE_CONTENT,
+            "This Idempotency-Key was already used for a different booking."),
+    NO_AVAILABILITY(HttpStatus.CONFLICT,
+            "No service bay and qualified technician are both free for the whole requested period."),
+    SLOT_CONTENTION(HttpStatus.CONFLICT, "Too many bookings are competing for this dealership and day; retry shortly."),
+    VEHICLE_ALREADY_BOOKED(HttpStatus.CONFLICT, "Vehicle %d already has an appointment overlapping this period."),
+    APPOINTMENT_ALREADY_STARTED(HttpStatus.CONFLICT, "Appointment %s has already started and cannot be cancelled.");
 
     private final HttpStatus status;
 

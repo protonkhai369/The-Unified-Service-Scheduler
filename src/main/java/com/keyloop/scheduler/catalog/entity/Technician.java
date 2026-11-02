@@ -7,7 +7,10 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import lombok.Getter;
+
 /** A technician of one dealership; qualifications are {@link TechnicianSkill} rows. */
+@Getter
 @Entity
 @Table(name = "technician")
 public class Technician {
@@ -27,21 +30,5 @@ public class Technician {
     private boolean active;
 
     protected Technician() {
-    }
-
-    public Long getId() {
-        return this.id;
-    }
-
-    public long getDealershipId() {
-        return this.dealershipId;
-    }
-
-    public String getName() {
-        return this.name;
-    }
-
-    public boolean isActive() {
-        return this.active;
     }
 }

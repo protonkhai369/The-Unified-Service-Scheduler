@@ -62,3 +62,6 @@ Desktop.ini
 *.swp
 *.swo
 *~
+
+# Local Postman collection for manual API testing (not part of the submission)
+postman/

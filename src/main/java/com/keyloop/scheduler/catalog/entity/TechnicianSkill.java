@@ -6,6 +6,8 @@ import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 
+import lombok.Getter;
+
 /**
  * A technician's qualification for a service type. Appointments reference it, so it is retired with
  * {@code active = false} instead of being deleted; a retired qualification no longer qualifies.
@@ -17,6 +19,7 @@ public class TechnicianSkill {
     @EmbeddedId
     private Key id;
 
+    @Getter
     @Column(nullable = false)
     private boolean active;
 
@@ -29,10 +32,6 @@ public class TechnicianSkill {
 
     public long getServiceTypeId() {
         return this.id.serviceTypeId();
-    }
-
-    public boolean isActive() {
-        return this.active;
     }
 
     @Embeddable

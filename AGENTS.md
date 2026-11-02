@@ -14,7 +14,9 @@ configuration, base test). `openspec/specs/` describes the target behaviour; fea
 through OpenSpec changes. The database schema (`V1__scheduler_schema.sql`) and demo data exist since
 change `add-scheduler-database`. Change `add-api-foundation` added the error pipeline, the request id
 and access log, and the read-only catalog endpoints (`/api/v1/service-types`, `/api/v1/dealerships`)
-with their JPA entities. Booking and availability do not exist yet.
+with their JPA entities. Change `add-appointment-booking` added booking, reading and cancelling
+appointments (`/api/v1/appointments`), the pure `scheduling` domain, idempotency and booking metrics.
+The availability search does not exist yet.
 
 ## Commands
 
@@ -71,16 +73,22 @@ whole toolkit to another project with `scripts/install-agent-skills.sh`.
 
 - Stack is fixed unless a proposal changes it: Java 21, Spring Boot 4.1.2 (Spring Framework 7,
   Hibernate 7, **Jackson 3** - `tools.jackson.*`), PostgreSQL 17, Flyway, springdoc 3.1.1,
-  Testcontainers 2 (`org.testcontainers.postgresql.PostgreSQLContainer`). Use Boot 4 APIs:
-  `@MockitoBean`, modular `spring-boot-starter-*-test` artifacts.
+  Testcontainers 2 (`org.testcontainers.postgresql.PostgreSQLContainer`), Lombok (entities only, see
+  below). Use Boot 4 APIs: `@MockitoBean`, modular `spring-boot-starter-*-test` artifacts.
 - Database: Supabase-hosted PostgreSQL 17 through the session pooler (IPv4; supports prepared
   statements). Credentials live only in the git-ignored `.env` (template `.env.example`), never in
   code, `application.yml`, docs or commits. Do not use the transaction pooler (port 6543).
 - Tests MUST run on `TestcontainersConfiguration` (a throwaway PostgreSQL 17), never on Supabase:
   tests create and truncate data.
 - Double booking MUST be prevented inside the database with `EXCLUDE USING gist` constraints
-  (`btree_gist` is available on Supabase); application-side checks are only an optimisation. A
-  booking that loses the race retries in a new transaction.
+  (`btree_gist` is available on Supabase); application-side checks are only an optimisation. Each
+  booking attempt first takes `pg_advisory_xact_lock` on its dealership and local day, so concurrent
+  requests queue instead of failing because of each other; any new code that writes appointments
+  must take the same lock. A booking that still loses a race (or is a deadlock victim) retries in a
+  new transaction. Classify database errors by SQLSTATE and constraint name from `PSQLException`,
+  never by message text.
+- "Now" comes only from the `Clock` bean. Tests move it through the `MutableClock` that
+  `ProbeConfiguration` registers and `DatabaseIntegrationTest` resets before each test.
 - Keep scheduling rules (time ranges, allocation, slot finding) in a pure domain package with no
   Spring or JPA, so they stay unit-testable.
 - Package by feature at the top level (`catalog`, `appointment`, `availability`, ...); inside a
@@ -113,6 +121,12 @@ whole toolkit to another project with `scripts/install-agent-skills.sh`.
   `ApiException`.
 - Never annotate a controller with `@Validated`: parameter constraints rely on Spring MVC's built-in
   method validation, and `@Validated` would turn their violations into 500s.
+- Lombok is used for `@Getter` on JPA entities only. No `@Setter` (state changes go through
+  factories and conditional updates), no `@Data`/`@EqualsAndHashCode` (a hash over mutable fields
+  breaks entities in sets and Hibernate's identity), no `@ToString`, no `@Builder` (it bypasses
+  factory invariants such as `Appointment.confirmed`). DTOs are records with static `of()` mappers;
+  there is no MapStruct. Lombok runs from the `maven-compiler-plugin` processor path, because JDK 23+
+  does not run processors found on the class path.
 - TDD applies to new work. Do not delete or rewrite existing, tested code just to redo it test-first.
 - Log non-trivial AI decisions and verification steps in `docs/AI_LOG.md`; "AI Engineering &
   Verification" is a scored criterion of the assessment.
