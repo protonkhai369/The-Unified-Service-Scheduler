@@ -122,6 +122,10 @@ Swagger UI: `/swagger-ui.html`.
 | `POST /api/v1/appointments` | required | `201` + `Location`: the booked appointment; optional `Idempotency-Key` header |
 | `GET /api/v1/appointments/{id}` | required | the appointment in its current state |
 | `POST /api/v1/appointments/{id}/cancel` | required | `200`: the cancelled appointment (idempotent) |
+| `GET /api/v1/me` | required (any role) | the caller: `userId`, `role`, and the linked `customer` or `dealership` as `{id, name}` |
+| `GET /api/v1/me/vehicles` | customer | `{"items": [...]}` of the caller's vehicles: `id`, `vin`, `make`, `model`, `modelYear` |
+| `GET /api/v1/me/appointments` | customer | `{"items": [...]}` of the caller's appointments, both statuses, by start time |
+| `GET /api/v1/dealerships/{id}/appointments?date=` | that dealership's advisor, admin | `{"items": [...]}` of the confirmed appointments starting on that local day, by start time then bay |
 
 "Required" means `Authorization: Bearer <Supabase access token>`, and what the caller may do depends
 on its role (see Access control).
@@ -489,6 +493,23 @@ Admin API can change. `user_metadata` is writable by the user and never read.
 | `admin` | - | everything | everything | yes |
 | missing, unknown, or without the id it needs | - | `403` | `403` | `403` |
 
+The lists added by `add-self-service-queries` follow the same roles:
+- `/me` answers any valid token, including one without a role, so a client can tell why an account
+  cannot book.
+- `/me/vehicles` and `/me/appointments` are for a customer with a `customer_id`. Anyone else gets
+  `403`.
+- A dealership's day is for its advisors and for admins. Anyone else gets `403`: dealerships are
+  public, so a `403` reveals nothing. A single appointment, by contrast, answers `404`.
+
+How the rules are enforced: `@PreAuthorize`, calling the pure `AccessPolicy`, guards the three list
+operations, because the caller and the arguments alone decide. Booking, reading one appointment and
+cancelling check inside the service:
+- booking must be counted as `rejected` and come before the replay;
+- reading must answer `404`;
+- cancelling must be checked before the update.
+
+`GlobalExceptionHandler` maps `AccessDeniedException` to the same `403 FORBIDDEN` problem.
+
 - Ids may be JSON numbers or numeric strings; role names are case-insensitive.
 - An appointment the caller may not see answers `404 APPOINTMENT_NOT_FOUND`, exactly like an unknown
   id, so a response never confirms that someone else's appointment exists.
@@ -581,6 +602,13 @@ Ambiguities in the brief, resolved as follows:
   permission on appointments (`403`).
 - Another user's appointment is reported as not found rather than forbidden.
 - Catalog data (dealerships, bays, technician names, service types) is public.
+- A customer's appointment history and a dealership's day are small enough to return unpaginated.
+- Appointment lists are ordered by start time, then id (the day schedule orders by bay before id).
+  This is an exception to "ordered by id", because appointment ids are random UUIDs.
+- A dealership's day lists confirmed appointments only. A cancelled appointment occupies no bay, and
+  the query stays on the partial index of confirmed appointments. A customer's own list keeps both
+  statuses, as a history.
+- `/me` reports a link that points at a missing customer or dealership as `null`.
 - Every actuator endpoint except health is for admins only. A separate management port for
   Prometheus scraping is the production follow-up.
 - The availability search's `date` is a calendar date at the dealership, not at the client. A past

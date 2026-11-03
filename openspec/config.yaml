@@ -18,6 +18,8 @@ context: |
   taking the booking lock. Every specified capability now exists; the architecture below is the
   intended design.
   Change add-supabase-auth provides Supabase token verification and customer, advisor and admin roles.
+  Change add-self-service-queries added /api/v1/me, /me/vehicles, /me/appointments and a
+  dealership's day (/api/v1/dealerships/{id}/appointments?date=).
 
   Core requirements from the brief (acceptance criteria):
   1. Resource-constrained booking: request an appointment for a vehicle, service type and
@@ -73,7 +75,9 @@ context: |
     rules are in the pure security.AccessPolicy and are checked first by services: a booking before
     the idempotency replay (403 FORBIDDEN), a read or cancel before anything else (404
     APPOINTMENT_NOT_FOUND for an appointment the caller may not see). Tests mint their own tokens
-    (TestTokens) for Boot's real decoder and never call Supabase.
+    (TestTokens) for Boot's real decoder and never call Supabase. Rules decided by the caller and
+    the arguments alone use @PreAuthorize on public service methods (method security is on, and
+    AccessDeniedException maps to 403 FORBIDDEN).
 
   Engineering with AI is an evaluated criterion: every non-trivial change should leave a trail
   (proposal/design/tasks) that shows how the AI was directed and how its output was verified.
