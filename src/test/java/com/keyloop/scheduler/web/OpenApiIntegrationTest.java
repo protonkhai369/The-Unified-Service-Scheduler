@@ -41,6 +41,26 @@ class OpenApiIntegrationTest extends DatabaseIntegrationTest {
                 .jsonPath("$.paths['/api/v1/appointments'].post.responses['201']").exists();
     }
 
+    /** access-control spec: Swagger UI's "Authorize" sends the token on appointment calls only. */
+    @Test
+    void declaresTheBearerSchemeOnTheAppointmentOperations() {
+        http.get().uri("/v3/api-docs")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.components.securitySchemes.bearer.type").isEqualTo("http")
+                .jsonPath("$.components.securitySchemes.bearer.scheme").isEqualTo("bearer")
+                .jsonPath("$.components.securitySchemes.bearer.bearerFormat").isEqualTo("JWT")
+                .jsonPath("$.paths['/api/v1/appointments'].post.security[0].bearer").isArray()
+                .jsonPath("$.paths['/api/v1/appointments/{id}'].get.security[0].bearer").isArray()
+                .jsonPath("$.paths['/api/v1/appointments/{id}/cancel'].post.security[0].bearer").isArray()
+                .jsonPath("$.paths['/api/v1/dealerships'].get.security").doesNotExist()
+                .jsonPath("$.security").doesNotExist()
+                // The caller comes from the token, never from a parameter.
+                .jsonPath("$.paths['/api/v1/appointments/{id}'].get.parameters[*].name")
+                .value((List<String> names) -> assertThat(names).containsExactly("id"));
+    }
+
     @Test
     void servesSwaggerUi() {
         http.get().uri("/swagger-ui/index.html").exchange().expectStatus().isOk();
