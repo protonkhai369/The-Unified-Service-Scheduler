@@ -32,11 +32,14 @@ import com.keyloop.scheduler.scheduling.BusinessDay;
 import com.keyloop.scheduler.scheduling.StartTimeRule;
 import com.keyloop.scheduler.scheduling.StartTimeViolation;
 import com.keyloop.scheduler.scheduling.TimeRange;
+import com.keyloop.scheduler.security.AccessPolicy;
+import com.keyloop.scheduler.security.AuthenticatedUser;
 import com.keyloop.scheduler.web.error.ApiException;
 import com.keyloop.scheduler.web.error.ErrorCode;
 
 /**
- * Books appointments: replay check, validation, then allocation attempts, each in its own transaction.
+ * Books appointments: permission check, replay check, validation, then allocation attempts, each in
+ * its own transaction.
  * Deliberately not {@code @Transactional}: PostgreSQL aborts a transaction after a constraint
  * violation, so a retry is only possible in a new one.
  */
@@ -84,11 +87,13 @@ public class BookingService {
     /**
      * @param idempotencyKey the client's key, or {@code null} to have one generated (such requests are
      * never deduplicated)
-     * @throws ApiException for every rejection defined by the appointment-booking spec
+     * @param caller who books; see {@link AccessPolicy#mayBook}
+     * @throws ApiException for every rejection defined by the appointment-booking and access-control specs
      */
-    public BookingResult book(BookAppointmentRequest request, @Nullable String idempotencyKey) {
+    public BookingResult book(BookAppointmentRequest request, @Nullable String idempotencyKey,
+            AuthenticatedUser caller) {
         try {
-            BookingResult result = bookCounted(request, idempotencyKey);
+            BookingResult result = bookCounted(request, idempotencyKey, caller);
             this.metrics.booked(result);
             return result;
         }
@@ -102,7 +107,13 @@ public class BookingService {
         }
     }
 
-    private BookingResult bookCounted(BookAppointmentRequest request, @Nullable String idempotencyKey) {
+    private BookingResult bookCounted(BookAppointmentRequest request, @Nullable String idempotencyKey,
+            AuthenticatedUser caller) {
+        // Before the replay: a customer can put any customerId in the body, so a replay first would let
+        // anyone who knows another customer's key and request read that customer's appointment.
+        if (!AccessPolicy.mayBook(caller, request.dealershipId(), request.customerId())) {
+            throw new ApiException(ErrorCode.FORBIDDEN);
+        }
         String key = idempotencyKey != null ? idempotencyKey : UUID.randomUUID().toString();
         Instant start = request.startTime().toInstant();
         String fingerprint = RequestFingerprint.of(request.dealershipId(), request.customerId(), request.vehicleId(),

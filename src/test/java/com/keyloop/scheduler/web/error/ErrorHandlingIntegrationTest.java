@@ -16,6 +16,7 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.web.servlet.client.RestTestClient.BodyContentSpec;
 
 import com.keyloop.scheduler.DatabaseIntegrationTest;
+import com.keyloop.scheduler.security.TestTokens;
 import com.keyloop.scheduler.web.ProbeConfiguration;
 
 /**
@@ -27,9 +28,11 @@ class ErrorHandlingIntegrationTest extends DatabaseIntegrationTest {
 
     private static final String PROBE = ProbeConfiguration.PROBE_PATH;
 
+    /** Authenticated: without a token every unknown path answers 401 (access-control spec). */
     @Test
     void unknownPathIsProblemWithEveryMember() {
         http.get().uri("/api/v1/no-such-path").header("X-Request-Id", "abc-123")
+                .headers(headers -> headers.setBearerAuth(tokens.admin()))
                 .exchange()
                 .expectStatus().isNotFound()
                 .expectHeader().contentType(APPLICATION_PROBLEM_JSON)
@@ -165,10 +168,12 @@ class ErrorHandlingIntegrationTest extends DatabaseIntegrationTest {
 
     @Test
     void logsClientErrorsWithoutStackTrace(CapturedOutput output) {
-        http.get().uri("/api/v1/no-such-path").header("X-Request-Id", "warn-1").exchange().expectStatus().isNotFound();
+        http.get().uri("/api/v1/no-such-path").header("X-Request-Id", "warn-1")
+                .headers(headers -> headers.setBearerAuth(tokens.admin()))
+                .exchange().expectStatus().isNotFound();
 
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(output.getOut())
-                .containsPattern("WARN .*\\[warn-1\\].*404 NOT_FOUND"));
+                .containsPattern("WARN .*\\[warn-1 " + TestTokens.USER_ID + "\\].*404 NOT_FOUND"));
         assertThat(output.getOut()).doesNotContain("NoResourceFoundException");
     }
 

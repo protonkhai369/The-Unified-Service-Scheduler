@@ -16,7 +16,12 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -32,8 +37,8 @@ import com.keyloop.scheduler.MutableClock;
 /**
  * Test-only endpoints and a failing filter that trigger the failures no real endpoint can trigger
  * yet (bodies, query parameters, headers, unexpected exceptions, a failure outside Spring MVC), and
- * the controllable clock. Imported by {@code DatabaseIntegrationTest}, so every integration test keeps
- * sharing one context.
+ * the controllable clock. The probes need no token: they test the error pipeline, not authentication.
+ * Imported by {@code DatabaseIntegrationTest}, so every integration test keeps sharing one context.
  */
 @TestConfiguration(proxyBeanMethods = false)
 public class ProbeConfiguration {
@@ -79,6 +84,16 @@ public class ProbeConfiguration {
         Map<String, String> gone() {
             throw new ResponseStatusException(HttpStatus.GONE);
         }
+    }
+
+    /** Checked before the application's chain, which would require a token. */
+    @Bean
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    SecurityFilterChain probeSecurity(HttpSecurity http) throws Exception {
+        return http.securityMatcher(PROBE_PATH + "/**")
+                .authorizeHttpRequests(requests -> requests.anyRequest().permitAll())
+                .csrf(AbstractHttpConfigurer::disable)
+                .build();
     }
 
     /** Replaces the application's clock, so tests can book fixed dates and move time forward. */
