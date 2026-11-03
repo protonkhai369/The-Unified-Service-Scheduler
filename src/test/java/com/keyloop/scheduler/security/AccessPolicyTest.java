@@ -59,6 +59,34 @@ class AccessPolicyTest {
         assertNothingAllowed(user(null, 2L, 2L));
     }
 
+    @Test
+    void onlyACustomerWithACustomerIdIsALinkedCustomer() {
+        assertThat(AccessPolicy.isLinkedCustomer(CUSTOMER_2)).isTrue();
+        assertThat(AccessPolicy.isLinkedCustomer(user(Role.CUSTOMER, null, 2L))).isFalse();
+        assertThat(AccessPolicy.isLinkedCustomer(ADVISOR_AT_2)).isFalse();
+        assertThat(AccessPolicy.isLinkedCustomer(ADMIN)).isFalse();
+        assertThat(AccessPolicy.isLinkedCustomer(user(null, 2L, 2L))).isFalse();
+    }
+
+    @Test
+    void scheduleIsForAdminsAndTheDealershipsOwnAdvisors() {
+        assertThat(AccessPolicy.mayViewSchedule(ADMIN, 1)).isTrue();
+        assertThat(AccessPolicy.mayViewSchedule(ADVISOR_AT_2, 2)).isTrue();
+        assertThat(AccessPolicy.mayViewSchedule(ADVISOR_AT_2, 1)).isFalse();
+        assertThat(AccessPolicy.mayViewSchedule(user(Role.ADVISOR, 2L, null), 2)).isFalse();
+        assertThat(AccessPolicy.mayViewSchedule(CUSTOMER_2, 2)).isFalse();
+        assertThat(AccessPolicy.mayViewSchedule(user(null, 2L, 2L), 2)).isFalse();
+    }
+
+    @Test
+    void customerSearchIsForAdminsAndAdvisorsWithADealership() {
+        assertThat(AccessPolicy.mayFindCustomers(ADMIN)).isTrue();
+        assertThat(AccessPolicy.mayFindCustomers(ADVISOR_AT_2)).isTrue();
+        assertThat(AccessPolicy.mayFindCustomers(user(Role.ADVISOR, 2L, null))).isFalse();
+        assertThat(AccessPolicy.mayFindCustomers(CUSTOMER_2)).isFalse();
+        assertThat(AccessPolicy.mayFindCustomers(user(null, 2L, 2L))).isFalse();
+    }
+
     private static void assertNothingAllowed(AuthenticatedUser user) {
         assertThat(AccessPolicy.mayUseAppointments(user)).isFalse();
         assertThat(AccessPolicy.mayBook(user, 2, 2)).isFalse();

@@ -122,6 +122,11 @@ Swagger UI: `/swagger-ui.html`.
 | `POST /api/v1/appointments` | required | `201` + `Location`: the booked appointment; optional `Idempotency-Key` header |
 | `GET /api/v1/appointments/{id}` | required | the appointment in its current state |
 | `POST /api/v1/appointments/{id}/cancel` | required | `200`: the cancelled appointment (idempotent) |
+| `GET /api/v1/me` | required (any role) | the caller: `userId`, `role`, and the linked `customer` or `dealership` as `{id, name}` |
+| `GET /api/v1/me/vehicles` | customer | `{"items": [...]}` of the caller's vehicles: `id`, `vin`, `make`, `model`, `modelYear` |
+| `GET /api/v1/me/appointments` | customer | `{"items": [...]}` of the caller's appointments, both statuses, by start time |
+| `GET /api/v1/dealerships/{id}/appointments?date=` | that dealership's advisor, admin | `{"items": [...]}` of the confirmed appointments starting on that local day, by start time then bay |
+| `GET /api/v1/customers?q=` | advisor with a dealership, admin | `{"items": [...]}` of at most 20 customers matching name or email (accent-, case- and typo-tolerant), each with its `vehicles` |
 
 "Required" means `Authorization: Bearer <Supabase access token>`, and what the caller may do depends
 on its role (see Access control).
@@ -489,6 +494,25 @@ Admin API can change. `user_metadata` is writable by the user and never read.
 | `admin` | - | everything | everything | yes |
 | missing, unknown, or without the id it needs | - | `403` | `403` | `403` |
 
+The lists added by `add-self-service-queries` follow the same roles:
+- `/me` answers any valid token, including one without a role, so a client can tell why an account
+  cannot book.
+- `/me/vehicles` and `/me/appointments` are for a customer with a `customer_id`. Anyone else gets
+  `403`.
+- A dealership's day is for its advisors and for admins. Anyone else gets `403`: dealerships are
+  public, so a `403` reveals nothing. A single appointment, by contrast, answers `404`.
+- Customer search (`add-customer-search`) is for advisors with a `dealership_id` and for admins.
+  Anyone else gets `403`.
+
+How the rules are enforced: `@PreAuthorize`, calling the pure `AccessPolicy`, guards the three list
+operations, because the caller and the arguments alone decide. Booking, reading one appointment and
+cancelling check inside the service:
+- booking must be counted as `rejected` and come before the replay;
+- reading must answer `404`;
+- cancelling must be checked before the update.
+
+`GlobalExceptionHandler` maps `AccessDeniedException` to the same `403 FORBIDDEN` problem.
+
 - Ids may be JSON numbers or numeric strings; role names are case-insensitive.
 - An appointment the caller may not see answers `404 APPOINTMENT_NOT_FOUND`, exactly like an unknown
   id, so a response never confirms that someone else's appointment exists.
@@ -537,6 +561,58 @@ Admin API can change. `user_metadata` is writable by the user and never read.
 
    In Swagger UI, "Authorize" takes the same token.
 
+## Customer search
+
+Built by OpenSpec change `add-customer-search`. It serves the desk flow "a customer calls, the
+advisor looks them up and books on their behalf". Without it, an advisor cannot learn a customer's
+id or vehicles.
+
+```
+GET /api/v1/customers?q=le%20minh%20duc            (advisor with a dealership, or admin)
+ ├─ q: 2–100 characters after trimming ──────────────────────────────── 400 VALIDATION_FAILED
+ ├─ @PreAuthorize AccessPolicy.mayFindCustomers ─────────────────────── 403 FORBIDDEN
+ └─ CustomerRepository.search(q)
+      escape \ % _ for LIKE (in Java), normalise in SQL: f_unaccent(lower(…))
+      match:  name or email CONTAINS q   OR   name % q (trigram similarity ≥ 0.3)
+      order:  containment first, then similarity, then id; LIMIT 20
+    + one query for the matches' vehicles ─────────────────────────────── 200 {items: [customer + vehicles]}
+```
+
+- Migration `V2__customer_search.sql` installs `unaccent` and `pg_trgm` in schema `extensions`. It
+  also adds an `IMMUTABLE` wrapper `f_unaccent`, needed because `unaccent()` itself is only
+  `STABLE` and cannot appear in an index, and two GIN trigram indexes on `f_unaccent(lower(name))`
+  and `f_unaccent(lower(email))`. `EXPLAIN` shows a `BitmapOr` over both indexes; there is no
+  sequential scan.
+- The application's `search_path` is `scheduler`, so the query names `extensions.similarity` and
+  `OPERATOR(extensions.%)` explicitly. The same SQL function normalises the stored names, the
+  indexes and the query, so they cannot disagree.
+- `unaccent` maps Vietnamese letters, `Đ→D` and `đ→d` included, and also strips decomposed (NFD)
+  input. Both behaviours were measured on PostgreSQL 17 and are locked by tests.
+- Measured trigram similarities, which explain why the default threshold of 0.3 needs no tuning:
+
+  | query | name | similarity |
+  | --- | --- | --- |
+  | `lee minh duk` (typo) | `le minh duc` | 0.56 |
+  | `duc le` (word order) | `le minh duc` | 0.58 |
+  | `duc` | `le minh duc` | 0.33 |
+  | `wil` | `emma wilson` | 0.23, found by containment instead |
+
+- Privacy: only staff can search, and an item holds only name, email, phone and vehicles. The search
+  text is never logged, because the access log writes the path without the query string. A test
+  captures the output to prove it.
+
+### Future work: finding a service
+
+Four service types fit on screen as buttons, so the web client filters them locally. Two server-side
+steps are designed but not built:
+- **Keywords.** A Vietnamese name and synonyms per service type, such as "thay nhớt" for "Oil and
+  filter change", searched with the same `f_unaccent` and trigram approach.
+- **Semantic search.** An embedding of the query compared with embeddings of the services
+  (`pgvector`, which Supabase supports), so "xe kêu khi phanh" finds brake service. It needs a model,
+  either in the JVM or behind an API. It must not become a costly endpoint on the public catalog.
+  Its quality has to be measured on a fixed evaluation set (query → expected service, plus nonsense
+  queries that must return nothing) before it ships.
+
 ## Code conventions
 
 - DTOs are Java records; each response has a static `of()` mapper. Mappings convert time zones and
@@ -581,6 +657,17 @@ Ambiguities in the brief, resolved as follows:
   permission on appointments (`403`).
 - Another user's appointment is reported as not found rather than forbidden.
 - Catalog data (dealerships, bays, technician names, service types) is public.
+- A customer's appointment history and a dealership's day are small enough to return unpaginated.
+- Appointment lists are ordered by start time, then id (the day schedule orders by bay before id).
+  This is an exception to "ordered by id", because appointment ids are random UUIDs.
+- A dealership's day lists confirmed appointments only. A cancelled appointment occupies no bay, and
+  the query stays on the partial index of confirmed appointments. A customer's own list keeps both
+  statuses, as a history.
+- `/me` reports a link that points at a missing customer or dealership as `null`.
+- An advisor may find any customer, not only those who already visited their dealership: they may
+  book for any customer there, and a walk-in may be new to it. Customers never search customers.
+- Customer search returns the 20 most relevant matches, not a paginated list. The data is stored as
+  typed, with accents; normalisation happens only in queries and index expressions.
 - Every actuator endpoint except health is for admins only. A separate management port for
   Prometheus scraping is the production follow-up.
 - The availability search's `date` is a calendar date at the dealership, not at the client. A past

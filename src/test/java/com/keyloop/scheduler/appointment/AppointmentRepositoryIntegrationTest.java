@@ -158,6 +158,59 @@ class AppointmentRepositoryIntegrationTest extends DatabaseIntegrationTest {
         assertThat(technicians.findActiveQualified(london.dealershipId(), saigon.serviceTypeId())).isEmpty();
     }
 
+    @Test
+    void scheduleViewsAreTheConfirmedAppointmentsOfOneLocalDayInStartAndBayOrder() {
+        long[] vehicles = { vehicle, fixtures.vehicle(customer), fixtures.vehicle(customer), fixtures.vehicle(customer) };
+        UUID late = fixtures.appointment(saigon.appointment(customer, vehicles[0], 1, 1,
+                saigonTime("2026-11-03T10:00"), saigonTime("2026-11-03T11:00")));
+        UUID secondBay = fixtures.appointment(saigon.appointment(customer, vehicles[1], 2, 2,
+                saigonTime("2026-11-03T07:30"), saigonTime("2026-11-03T08:30")));
+        UUID firstBay = fixtures.appointment(saigon.appointment(customer, vehicles[2], 1, 1,
+                saigonTime("2026-11-03T07:30"), saigonTime("2026-11-03T08:30")));
+        UUID atMidnight = fixtures.appointment(saigon.appointment(customer, vehicles[3], 2, 2,
+                saigonTime("2026-11-03T00:00"), saigonTime("2026-11-03T01:00")));
+        fixtures.appointment(saigon.appointment(customer, vehicles[3], 2, 2,
+                saigonTime("2026-11-04T00:00"), saigonTime("2026-11-04T01:00")));
+        fixtures.appointment(saigon.appointment(customer, vehicles[0], 1, 1,
+                saigonTime("2026-11-02T16:30"), saigonTime("2026-11-02T17:30")));
+        fixtures.appointment(saigon.appointment(customer, vehicles[1], 1, 1,
+                saigonTime("2026-11-03T12:00"), saigonTime("2026-11-03T13:00")).withStatus("CANCELLED"));
+        fixtures.appointment(london.appointment(customer, vehicles[2], 1, 1, OffsetDateTime.parse("2026-11-03T10:00Z"),
+                OffsetDateTime.parse("2026-11-03T11:00Z")));
+
+        BusinessDay day = new BusinessDay(LocalDate.parse("2026-11-03"), SAIGON, LocalTime.of(7, 30), LocalTime.of(17, 30));
+        List<AppointmentView> views = appointments.findViewsStartingBetween(saigon.dealershipId(),
+                day.wholeDay().start(), day.wholeDay().end());
+
+        assertThat(views).extracting(view -> view.appointment().getId())
+                .containsExactly(atMidnight, firstBay, secondBay, late);
+        assertThat(views.get(1)).satisfies(view -> {
+            assertThat(view.timeZone()).isEqualTo("Asia/Ho_Chi_Minh");
+            assertThat(view.serviceBayName()).isNotBlank();
+            assertThat(view.technicianName()).isNotBlank();
+        });
+    }
+
+    @Test
+    void customerViewsAreAllTheirAppointmentsAtEveryDealershipInStartOrder() {
+        long otherCustomer = fixtures.customer("Duc");
+        long secondVehicle = fixtures.vehicle(customer);
+        UUID inLondon = fixtures.appointment(london.appointment(customer, vehicle, 1, 1,
+                OffsetDateTime.parse("2026-11-04T10:00Z"), OffsetDateTime.parse("2026-11-04T11:00Z")));
+        UUID inSaigon = fixtures.appointment(saigon.appointment(customer, vehicle, 1, 1,
+                saigonTime("2026-11-03T09:00"), saigonTime("2026-11-03T10:00")));
+        UUID cancelled = fixtures.appointment(saigon.appointment(customer, secondVehicle, 2, 2,
+                saigonTime("2026-11-03T12:00"), saigonTime("2026-11-03T13:00")).withStatus("CANCELLED"));
+        fixtures.appointment(saigon.appointment(otherCustomer, fixtures.vehicle(otherCustomer), 1, 1,
+                saigonTime("2026-11-03T07:30"), saigonTime("2026-11-03T08:30")));
+
+        List<AppointmentView> views = appointments.findViewsOfCustomer(customer);
+
+        assertThat(views).extracting(view -> view.appointment().getId()).containsExactly(inSaigon, cancelled, inLondon);
+        assertThat(views).extracting(AppointmentView::timeZone)
+                .containsExactly("Asia/Ho_Chi_Minh", "Asia/Ho_Chi_Minh", "Europe/London");
+    }
+
     private int cancelInTransaction(UUID id, Instant now) {
         return new TransactionTemplate(transactionManager).execute(status -> appointments.cancelIfNotStarted(id, now));
     }

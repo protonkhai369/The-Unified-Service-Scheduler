@@ -54,6 +54,15 @@ class OpenApiIntegrationTest extends DatabaseIntegrationTest {
                 .jsonPath("$.paths['/api/v1/appointments/{id}'].get.security[0].bearer").isArray()
                 .jsonPath("$.paths['/api/v1/appointments/{id}/cancel'].post.security[0].bearer").isArray()
                 .jsonPath("$.paths['/api/v1/dealerships/{dealershipId}/availability'].get.security[0].bearer").isArray()
+                .jsonPath("$.paths['/api/v1/me'].get.security[0].bearer").isArray()
+                .jsonPath("$.paths['/api/v1/me/vehicles'].get.security[0].bearer").isArray()
+                .jsonPath("$.paths['/api/v1/me/appointments'].get.security[0].bearer").isArray()
+                .jsonPath("$.paths['/api/v1/dealerships/{dealershipId}/appointments'].get.security[0].bearer").isArray()
+                .jsonPath("$.paths['/api/v1/me'].get.parameters").doesNotExist()
+                .jsonPath("$.paths['/api/v1/me/vehicles'].get.parameters").doesNotExist()
+                .jsonPath("$.paths['/api/v1/me/appointments'].get.parameters").doesNotExist()
+                .jsonPath("$.paths['/api/v1/dealerships/{dealershipId}/appointments'].get.parameters[*].name")
+                .value((List<String> names) -> assertThat(names).containsExactlyInAnyOrder("dealershipId", "date"))
                 .jsonPath("$.paths['/api/v1/dealerships'].get.security").doesNotExist()
                 .jsonPath("$.paths['/api/v1/dealerships/{id}'].get.security").doesNotExist()
                 .jsonPath("$.security").doesNotExist()
@@ -77,6 +86,20 @@ class OpenApiIntegrationTest extends DatabaseIntegrationTest {
                 .value((List<String> format) -> assertThat(format).containsExactly("date"))
                 .jsonPath(operation + ".responses['200'].content['*/*'].schema['$ref']")
                 .isEqualTo("#/components/schemas/AvailabilityResponse");
+    }
+
+    @Test
+    void documentsTheCustomerSearch() {
+        String operation = "$.paths['/api/v1/customers'].get";
+        http.get().uri("/v3/api-docs")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath(operation + ".security[0].bearer").isArray()
+                .jsonPath(operation + ".parameters[*].name")
+                .value((List<String> names) -> assertThat(names).containsExactly("q"))
+                .jsonPath(operation + ".parameters[0].in").isEqualTo("query")
+                .jsonPath(operation + ".parameters[0].required").isEqualTo(true);
     }
 
     @Test

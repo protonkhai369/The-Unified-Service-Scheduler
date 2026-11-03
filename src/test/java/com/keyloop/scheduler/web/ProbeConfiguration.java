@@ -20,6 +20,7 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -71,6 +72,12 @@ public class ProbeConfiguration {
         @GetMapping("/failure")
         Map<String, String> failure() {
             throw new IllegalStateException("secret internal detail");
+        }
+
+        @GetMapping("/denied")
+        @PreAuthorize("false")
+        public Map<String, String> denied() {
+            return Map.of("status", "should not be reached");
         }
 
         @GetMapping("/gone")

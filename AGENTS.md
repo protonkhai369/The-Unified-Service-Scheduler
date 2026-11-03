@@ -21,7 +21,11 @@ Change `add-availability-search` added the read-only availability search
 reusing booking's rules (`StartTimeRule`, `FreeResources`) and never takes the booking lock. Every
 specified capability now exists.
 Change `add-supabase-auth` made the backend an OAuth2 resource server for Supabase Auth access tokens,
-with roles `customer`, `advisor` and `admin` from `app_metadata`.
+with roles `customer`, `advisor` and `admin` from `app_metadata`. Change `add-self-service-queries`
+added `/api/v1/me`, `/api/v1/me/vehicles`, `/api/v1/me/appointments` and a dealership's day
+(`/api/v1/dealerships/{id}/appointments?date=`). Change `add-customer-search` added staff search of
+customers by name or email (`/api/v1/customers?q=`), accent- and typo-tolerant with `unaccent` and
+`pg_trgm` (migration `V2`).
 
 ## Commands
 
@@ -94,6 +98,11 @@ whole toolkit to another project with `scripts/install-agent-skills.sh`.
   (users can edit it). Rules that need the request body or the appointment live in the pure
   `security.AccessPolicy`, and services check them first: bookings before the idempotency replay,
   cancellations before the update. An appointment the caller may not see is `404`, not `403`.
+- Use `@PreAuthorize` (method security is on), calling `AccessPolicy` from SpEL, on a `public`
+  service method when the caller and the arguments alone decide (the `/me` lists, a dealership's
+  day). Check inside the service when the decision needs loaded data or must sit between business
+  steps (booking, reading or cancelling one appointment). `GlobalExceptionHandler` turns
+  `AccessDeniedException` into `403 FORBIDDEN`; without that handler its catch-all would answer `500`.
 - Tests never call Supabase Auth. `DatabaseIntegrationTest.tokens` (`TestTokens`) signs tokens that
   the application's real decoder accepts. The `AppointmentApiTestSupport` helpers call as admin; use
   `bookAs`, `getAs` and `cancelAs` for other roles.
@@ -119,6 +128,12 @@ whole toolkit to another project with `scripts/install-agent-skills.sh`.
 - Every table lives in schema `scheduler`, never `public`: Supabase exposes `public` to anonymous
   callers through its Data API. Extensions go in schema `extensions`. V1 already revokes the
   `anon`/`authenticated` roles' default privileges, so new tables need no extra grants or RLS.
+  The application's `search_path` is `scheduler` only, so SQL that uses an extension names it:
+  `extensions.similarity(...)`, `OPERATOR(extensions.%)`, `extensions.gin_trgm_ops`. Accent-insensitive
+  comparisons use the `IMMUTABLE` wrapper `f_unaccent`, never `unaccent()` directly, so an index can
+  serve them.
+- `src/test/resources/db/probe/V<n>__probe.sql` always stands for "the next schema migration": when a
+  real `V<n>` is added, renumber the probe and `DemoDataIntegrationTest`'s expected version.
 - Demo data lives only in `src/main/resources/db/demo/R__demo_data.sql`, a repeatable migration that
   inserts only when `dealership` is empty. Never put demo rows in `db/migration` or in a versioned
   migration. The application loads both locations; tests load `db/migration` only.

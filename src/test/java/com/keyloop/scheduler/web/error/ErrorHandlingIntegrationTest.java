@@ -131,6 +131,23 @@ class ErrorHandlingIntegrationTest extends DatabaseIntegrationTest {
     }
 
     @Test
+    void methodSecurityDenialIsAForbiddenProblem(CapturedOutput output) {
+        http.get().uri(PROBE + "/denied").header("X-Request-Id", "denied-1")
+                .exchange()
+                .expectStatus().isForbidden()
+                .expectHeader().contentType(APPLICATION_PROBLEM_JSON)
+                .expectBody()
+                .jsonPath("$.status").isEqualTo(403)
+                .jsonPath("$.code").isEqualTo("FORBIDDEN")
+                .jsonPath("$.requestId").isEqualTo("denied-1")
+                .consumeWith(result -> assertThat(new String(result.getResponseBody())).doesNotContain("should not"));
+
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(output.getOut())
+                .containsPattern("WARN .*\\[denied-1\\].*403 FORBIDDEN"));
+        assertThat(output.getOut()).doesNotContain("AuthorizationDeniedException");
+    }
+
+    @Test
     void hidesUnexpectedExceptionsAndLogsTheirStackTrace(CapturedOutput output) {
         http.get().uri(PROBE + "/failure").header("X-Request-Id", "boom-1")
                 .exchange()

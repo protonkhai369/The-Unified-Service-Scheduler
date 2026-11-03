@@ -756,3 +756,129 @@ authorisation to be added.
   `openspec validate --all --strict` 9 passed.
 - With the fix: `./mvnw clean test` 283 passed, 0 failed (red first: 2 failures in the new
   assertions).
+
+## 2026-11-04 - add-self-service-queries (OpenSpec change)
+
+Four read-only endpoints that a client, the planned web client included, needs in order to book
+without already knowing ids: `/api/v1/me`, `/api/v1/me/vehicles`, `/api/v1/me/appointments` and a
+dealership's day (`/api/v1/dealerships/{id}/appointments?date=`). Driven through OpenSpec on branch
+`feat/self-service-queries`, created from `origin/main`: propose, human review, then `/opsx:apply`
+with tests first.
+
+### Decisions taken with the user
+
+- The user asked why the checks did not use `@PreAuthorize`/`@PostAuthorize`. The AI compared them
+  operation by operation, and the user chose a split:
+  - `@PreAuthorize` calls the pure `AccessPolicy` on the three list operations.
+  - Booking (metric and replay order), reading one appointment (`404`, not `403`) and cancelling
+    (checked before the update) keep their checks in the service.
+- The user asked for the earlier single `GET /api/v1/appointments?dealershipId=&date=`. The AI
+  proposed two endpoints by use case instead, each with its own audience and bound, and the user
+  approved the proposal.
+
+### Decisions taken by the AI
+
+- While writing the proposal, the AI checked the schema and corrected its own design. The index on
+  `(dealership_id, start_at)` is partial (`WHERE status = 'CONFIRMED'`). The day schedule therefore
+  lists confirmed appointments only, and needs no migration. The customer's list keeps both statuses
+  and uses `appointment_customer_idx`.
+- `@PreAuthorize` sits on `public` service methods, because the controllers are package-private and
+  a CGLIB proxy might not intercept them. Method security wraps the transaction, so a refused call
+  reads nothing.
+- `dealershipDay` takes no caller argument: `principal` in SpEL decides. The design's signature was
+  corrected.
+
+### Problems found during implementation
+
+- Method security needs a handler. `GlobalExceptionHandler`'s catch-all `Exception` handler would
+  have turned `AccessDeniedException` into `500`. A probe guarded by `@PreAuthorize("false")` proved
+  it: it answered `200` while method security was off (red), and `403 FORBIDDEN` with the request id
+  once `@EnableMethodSecurity` and a dedicated handler were added.
+- A first `test-compile` without `clean` reported no error for the new `AccessPolicy` calls, because
+  stale classes were left in `target/`. Rerun with `clean`, it failed as expected.
+- `case CUSTOMER, null ->` is not valid Java (`null` combines only with `default`). It was split into
+  two labels.
+- The OpenAPI assertions passed at once, because the annotations had been added with the
+  controllers. To show the test guards anything, `@SecurityRequirement` was removed from
+  `AccountController`, the test failed on `/api/v1/me`, and the annotation was restored.
+
+### Verification
+
+- Red runs before each implementation task:
+  - the policy tests did not compile;
+  - the denial probe answered `200`;
+  - account tests: 9 of 10 failed;
+  - list tests: 13 of 14 failed;
+  - repository tests did not compile.
+  The tests that passed early (requests without a token) pass because of the existing URL rule.
+- `./mvnw clean test`: `Tests run: 312, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS, with one
+  Tomcat start (283 before this change, 29 new).
+- All 24 scenarios of `caller-profile` and `appointment-lists` have a test with the scenario name as
+  `@DisplayName` (checked by a script). This includes the Auckland local-day case (UTC+13).
+- `openspec validate --all --strict`: 10 passed.
+
+## 2026-11-04 - add-customer-search (OpenSpec change)
+
+Staff search of customers by name or email, accent-, case- and typo-tolerant, so an advisor can find
+a customer and their vehicles to book on their behalf. Explored first in `/opsx:explore`:
+- The user asked whether the code searched case- and accent-insensitively, or by three-letter groups
+  (trigrams). It did not search at all.
+- The user then asked for customer and service search at three levels.
+- The AI mapped the cost and value of each piece, and the user accepted a cut line: customer search
+  on the server; service search only filtered in the web client; keyword and semantic service search
+  documented as future work.
+
+### Decisions taken with the user
+
+- Scope stops at name and email. Phone, VIN and plate search, per-dealership visibility and ranking
+  tuning are non-goals.
+- Service search is not on the server. The semantic-search idea, with an evaluation set, is written
+  in `SYSTEM_DESIGN.md` as future work.
+- A new branch, `feat/customer-search`, created from `main` after PR #8 (`add-self-service-queries`)
+  was merged, because the change reuses its method security.
+
+### Measured before writing the spec
+
+- On `postgres:17-alpine`, the test image, the AI checked that `unaccent` and `pg_trgm` are
+  available. `unaccent.rules` maps `Đ→D`, `đ→d`, `ế→e` and `ữ→u`, and `unaccent` also strips NFD
+  input. That made the "Unicode NFC" trap raised during exploration moot; a test now locks the
+  behaviour.
+- It measured the trigram similarities quoted in `SYSTEM_DESIGN.md`. One scenario drafted from
+  intuition ("Mihn Tuan" resembles "minh") scored 0.15 and would never match. The AI replaced it with
+  a measured pair (`le minh duc` versus "Lee Minh Duk") before the user reviewed the change.
+- A spike ran the planned migration and query with `search_path = scheduler`. `EXPLAIN` showed a
+  `BitmapOr` over both GIN indexes, and every scenario returned the expected order.
+
+### Decisions taken by the AI
+
+- An `IMMUTABLE` wrapper `f_unaccent` around the two-argument `unaccent`, because `unaccent()` is
+  `STABLE` and cannot be used in an index. Extension objects are schema-qualified, because the
+  connection pool sets `search_path` to `scheduler`.
+- Normalisation happens only in SQL, with the same function as the index. `LIKE` wildcards are
+  escaped in Java. The escaping lives in a `default` repository method, which differs from the
+  design's "service" wording; the design was corrected.
+- Vehicles are returned with each customer, so the desk needs one request. This takes two queries in
+  total and has no N+1.
+
+### Problems found during implementation
+
+- The test-only probe `db/probe/V2__probe.sql` would have clashed with the real `V2`. It became
+  `V3`, as task 1.1 planned. A rule in `AGENTS.md` now keeps the probe one version ahead.
+- Two existing assertions listed the applied migrations exactly, one in `SchemaPlatformIntegrationTest`
+  and one in `DemoDataIntegrationTest`. Both were updated to include "customer search".
+- Writing `VehicleRepository` failed once, because the file had only been read through the shell.
+  It was re-read and edited.
+
+### Verification
+
+- Red runs before each implementation task:
+  - 4 schema tests failed before `V2`;
+  - the policy test did not compile;
+  - the repository test did not compile;
+  - 16 of 17 HTTP tests failed (the one without a token passes through the URL rule).
+- Every search test passed at its first green run (7 repository tests, 17 HTTP tests), and the log
+  privacy test confirmed that no line of the request contains the name or its URL encoding.
+- To prove the OpenAPI assertion guards something, `@SecurityRequirement` was removed from
+  `CustomerController`: the test failed, and the annotation was restored.
+- `./mvnw clean test`: `Tests run: 341, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS, with one
+  Tomcat start (312 before this change, 29 new).

@@ -33,6 +33,28 @@ public final class AccessPolicy {
         return actsFor(user, appointmentDealershipId, appointmentCustomerId);
     }
 
+    public static boolean isLinkedCustomer(AuthenticatedUser user) {
+        return user.role() == Role.CUSTOMER && user.customerId() != null;
+    }
+
+    public static boolean mayViewSchedule(AuthenticatedUser user, long dealershipId) {
+        return switch (user.role()) {
+            case ADMIN -> true;
+            case ADVISOR -> Objects.equals(user.dealershipId(), dealershipId);
+            case CUSTOMER -> false;
+            case null -> false;
+        };
+    }
+
+    public static boolean mayFindCustomers(AuthenticatedUser user) {
+        return switch (user.role()) {
+            case ADMIN -> true;
+            case ADVISOR -> user.dealershipId() != null;
+            case CUSTOMER -> false;
+            case null -> false;
+        };
+    }
+
     private static boolean actsFor(AuthenticatedUser user, long dealershipId, long customerId) {
         return switch (user.role()) {
             case ADMIN -> true;

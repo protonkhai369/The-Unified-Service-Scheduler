@@ -43,6 +43,24 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
               and d.id = a.dealershipId and b.id = a.serviceBayId and t.id = a.technicianId""")
     Optional<AppointmentView> findViewByIdempotencyKey(String idempotencyKey);
 
+    @Query("""
+            select new com.keyloop.scheduler.appointment.repository.AppointmentView(a, d.timeZone, b.name, t.name)
+            from Appointment a, Dealership d, ServiceBay b, Technician t
+            where a.dealershipId = :dealershipId
+              and a.status = com.keyloop.scheduler.appointment.entity.AppointmentStatus.CONFIRMED
+              and a.startAt >= :from and a.startAt < :to
+              and d.id = a.dealershipId and b.id = a.serviceBayId and t.id = a.technicianId
+            order by a.startAt, a.serviceBayId""")
+    List<AppointmentView> findViewsStartingBetween(long dealershipId, Instant from, Instant to);
+
+    @Query("""
+            select new com.keyloop.scheduler.appointment.repository.AppointmentView(a, d.timeZone, b.name, t.name)
+            from Appointment a, Dealership d, ServiceBay b, Technician t
+            where a.customerId = :customerId
+              and d.id = a.dealershipId and b.id = a.serviceBayId and t.id = a.technicianId
+            order by a.startAt, a.id""")
+    List<AppointmentView> findViewsOfCustomer(long customerId);
+
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update Appointment a
