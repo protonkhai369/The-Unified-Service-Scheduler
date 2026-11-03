@@ -21,6 +21,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 
 import com.keyloop.scheduler.DatabaseFixtures.Workshop;
 import com.keyloop.scheduler.appointment.AppointmentApiTestSupport;
+import com.keyloop.scheduler.security.TestTokens;
 
 /**
  * observability spec, "Booking metrics" (the lost-race counter is checked by the concurrency test), and
@@ -113,8 +114,7 @@ class BookingMetricsIntegrationTest extends AppointmentApiTestSupport {
     void malformedRequestNotCountedAsABooking() {
         double before = allBookings();
 
-        problem(http.post().uri(APPOINTMENTS).contentType(APPLICATION_JSON).body("{\"dealershipId\": -1}").exchange(),
-                400, "VALIDATION_FAILED");
+        problem(bookAs(tokens.admin(), Map.of("dealershipId", -1)), 400, "VALIDATION_FAILED");
 
         assertThat(allBookings()).isEqualTo(before);
     }
@@ -124,7 +124,8 @@ class BookingMetricsIntegrationTest extends AppointmentApiTestSupport {
     void latencyHistogramBuckets() {
         booked(workshop.request(emma, golf, "2026-11-03T10:00:00Z"));
 
-        String scrape = http.get().uri("/actuator/prometheus").exchange()
+        String scrape = http.get().uri("/actuator/prometheus").headers(headers -> headers.setBearerAuth(tokens.admin()))
+                .exchange()
                 .expectStatus().isOk()
                 .expectBody(String.class).returnResult().getResponseBody();
 
@@ -136,10 +137,12 @@ class BookingMetricsIntegrationTest extends AppointmentApiTestSupport {
                 .contains("scheduler_booking_conflicts_total");
     }
 
+    /** Also access-control: the caller's Supabase user id, never their email. */
     @Test
-    void confirmationIsLoggedWithTheRequestIdAndNoCustomerData(CapturedOutput output) {
+    void confirmationIsLoggedWithTheRequestIdAndTheUserIdButNoPersonalData(CapturedOutput output) {
         Map<String, Object> appointment = http.post().uri(APPOINTMENTS).contentType(APPLICATION_JSON)
                 .header("X-Request-Id", "booking-log-1")
+                .headers(headers -> headers.setBearerAuth(tokens.admin()))
                 .body(workshop.request(emma, golf, "2026-11-03T10:00:00Z"))
                 .exchange()
                 .expectStatus().isCreated()
@@ -148,7 +151,10 @@ class BookingMetricsIntegrationTest extends AppointmentApiTestSupport {
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(output.getOut().lines()
                 .filter(line -> line.contains("Appointment " + appointment.get("id") + " confirmed")))
                 .singleElement()
-                .satisfies(line -> assertThat(line).contains("[booking-log-1]").doesNotContain("Emma")));
+                .satisfies(line -> assertThat(line)
+                        .contains("[booking-log-1 " + TestTokens.USER_ID + "]")
+                        .doesNotContain("Emma")
+                        .doesNotContain(TestTokens.EMAIL)));
     }
 
     private double bookings(String outcome) {

@@ -17,6 +17,8 @@ class ErrorCodeTest {
 
     @Test
     void picksSpecificCodesForRoutingErrors() {
+        assertThat(ErrorCode.forStatus(HttpStatus.UNAUTHORIZED)).isEqualTo(ErrorCode.UNAUTHENTICATED);
+        assertThat(ErrorCode.forStatus(HttpStatus.FORBIDDEN)).isEqualTo(ErrorCode.FORBIDDEN);
         assertThat(ErrorCode.forStatus(HttpStatus.NOT_FOUND)).isEqualTo(ErrorCode.NOT_FOUND);
         assertThat(ErrorCode.forStatus(HttpStatus.METHOD_NOT_ALLOWED)).isEqualTo(ErrorCode.METHOD_NOT_ALLOWED);
         assertThat(ErrorCode.forStatus(HttpStatus.UNSUPPORTED_MEDIA_TYPE)).isEqualTo(ErrorCode.UNSUPPORTED_MEDIA_TYPE);

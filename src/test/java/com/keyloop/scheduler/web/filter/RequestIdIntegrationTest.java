@@ -48,6 +48,7 @@ class RequestIdIntegrationTest extends DatabaseIntegrationTest {
     @Test
     void addsRequestIdToErrorResponses() {
         http.get().uri("/api/v1/no-such-path").header("X-Request-Id", "err-1")
+                .headers(headers -> headers.setBearerAuth(tokens.admin()))
                 .exchange()
                 .expectStatus().isNotFound()
                 .expectHeader().valueEquals("X-Request-Id", "err-1");

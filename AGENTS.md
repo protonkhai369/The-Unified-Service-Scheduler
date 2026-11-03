@@ -16,7 +16,9 @@ change `add-scheduler-database`. Change `add-api-foundation` added the error pip
 and access log, and the read-only catalog endpoints (`/api/v1/service-types`, `/api/v1/dealerships`)
 with their JPA entities. Change `add-appointment-booking` added booking, reading and cancelling
 appointments (`/api/v1/appointments`), the pure `scheduling` domain, idempotency and booking metrics.
-The availability search does not exist yet.
+Change `add-supabase-auth` made the backend an OAuth2 resource server for Supabase Auth access tokens,
+with roles `customer`, `advisor` and `admin` from `app_metadata`. The availability search does not
+exist yet.
 
 ## Commands
 
@@ -73,13 +75,25 @@ whole toolkit to another project with `scripts/install-agent-skills.sh`.
 
 - Stack is fixed unless a proposal changes it: Java 21, Spring Boot 4.1.2 (Spring Framework 7,
   Hibernate 7, **Jackson 3** - `tools.jackson.*`), PostgreSQL 17, Flyway, springdoc 3.1.1,
-  Testcontainers 2 (`org.testcontainers.postgresql.PostgreSQLContainer`), Lombok (entities only, see
-  below). Use Boot 4 APIs: `@MockitoBean`, modular `spring-boot-starter-*-test` artifacts.
+  Testcontainers 2 (`org.testcontainers.postgresql.PostgreSQLContainer`), Spring Security 7 as an
+  OAuth2 resource server, Lombok (entities only, see below). Use Boot 4 APIs: `@MockitoBean`, modular `spring-boot-starter-*-test` artifacts.
 - Database: Supabase-hosted PostgreSQL 17 through the session pooler (IPv4; supports prepared
   statements). Credentials live only in the git-ignored `.env` (template `.env.example`), never in
   code, `application.yml`, docs or commits. Do not use the transaction pooler (port 6543).
 - Tests MUST run on `TestcontainersConfiguration` (a throwaway PostgreSQL 17), never on Supabase:
   tests create and truncate data.
+- Authentication is Supabase Auth; the backend only verifies access tokens (JWKS from `SUPABASE_URL`,
+  ES256) and holds no Supabase secret. `SUPABASE_SECRET_KEY` in `.env` is for
+  `scripts/supabase-demo-users.py` only, which creates users in the live project: run it only when
+  the user asks.
+- Security is deny by default: a new endpoint needs a token unless it is added to the public list in
+  `security.SecurityConfiguration`. Read roles only from `app_metadata`, never from `user_metadata`
+  (users can edit it). Rules that need the request body or the appointment live in the pure
+  `security.AccessPolicy`, and services check them first: bookings before the idempotency replay,
+  cancellations before the update. An appointment the caller may not see is `404`, not `403`.
+- Tests never call Supabase Auth. `DatabaseIntegrationTest.tokens` (`TestTokens`) signs tokens that
+  the application's real decoder accepts. The `AppointmentApiTestSupport` helpers call as admin; use
+  `bookAs`, `getAs` and `cancelAs` for other roles.
 - Double booking MUST be prevented inside the database with `EXCLUDE USING gist` constraints
   (`btree_gist` is available on Supabase); application-side checks are only an optimisation. Each
   booking attempt first takes `pg_advisory_xact_lock` on its dealership and local day, so concurrent

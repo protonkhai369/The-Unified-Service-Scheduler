@@ -35,11 +35,24 @@ spring:
     # Validation messages in English, whatever the caller's Accept-Language or the host's locale.
     locale: en
     locale-resolver: fixed
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Supabase Auth access tokens, verified against the project's published signing keys: no
+          # Supabase secret here. The keys are fetched on the first token and cached. Without
+          # SUPABASE_URL (.env) the Supabase CLI's local address is used, so only public endpoints work.
+          jwk-set-uri: ${SUPABASE_URL:http://127.0.0.1:54321}/auth/v1/.well-known/jwks.json
+          issuer-uri: ${SUPABASE_URL:http://127.0.0.1:54321}/auth/v1
+          # Supabase signs with ES256; Spring would otherwise accept RS256 only.
+          jws-algorithms: ES256
+          audiences: authenticated
 
 logging:
   pattern:
-    # The request's X-Request-Id (set by RequestIdFilter) in every console line.
-    correlation: "[%X{requestId:-}] "
+    # The request's X-Request-Id (RequestIdFilter) and, when authenticated, the caller's Supabase user id
+    # (UserIdLogFilter) in every console line: "[abc-123 5a1f...]", or "[abc-123]" without a caller.
+    correlation: "[%X{requestId:-}%replace( %X{userId:-}){'^ $', ''}] "
 
 scheduler:
   # Bookings for one dealership and local day queue on a database lock; a booking that waits longer

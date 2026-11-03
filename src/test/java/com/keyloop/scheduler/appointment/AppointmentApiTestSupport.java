@@ -15,7 +15,10 @@ import org.springframework.test.web.servlet.client.RestTestClient.ResponseSpec;
 import com.keyloop.scheduler.DatabaseFixtures.Workshop;
 import com.keyloop.scheduler.DatabaseIntegrationTest;
 
-/** HTTP helpers shared by the appointment tests; same context as every other integration test. */
+/**
+ * HTTP helpers shared by the appointment tests; same context as every other integration test. The
+ * helpers without a token parameter call as an admin, so the booking tests stay about booking.
+ */
 public abstract class AppointmentApiTestSupport extends DatabaseIntegrationTest {
 
     protected static final String APPOINTMENTS = "/api/v1/appointments";
@@ -39,8 +42,18 @@ public abstract class AppointmentApiTestSupport extends DatabaseIntegrationTest 
         return book(body, null);
     }
 
+    /** As an admin, who may book anything; the permission tests use {@link #bookAs}. */
     protected ResponseSpec book(Map<String, Object> body, @Nullable String idempotencyKey) {
-        RequestBodySpec request = http.post().uri(APPOINTMENTS).contentType(APPLICATION_JSON);
+        return bookAs(tokens.admin(), body, idempotencyKey);
+    }
+
+    protected ResponseSpec bookAs(String token, Map<String, Object> body) {
+        return bookAs(token, body, null);
+    }
+
+    protected ResponseSpec bookAs(String token, Map<String, Object> body, @Nullable String idempotencyKey) {
+        RequestBodySpec request = http.post().uri(APPOINTMENTS).contentType(APPLICATION_JSON)
+                .headers(headers -> headers.setBearerAuth(token));
         if (idempotencyKey != null) {
             request = request.header("Idempotency-Key", idempotencyKey);
         }
@@ -58,11 +71,20 @@ public abstract class AppointmentApiTestSupport extends DatabaseIntegrationTest 
     }
 
     protected ResponseSpec get(Object id) {
-        return http.get().uri(APPOINTMENTS + "/{id}", id).exchange();
+        return getAs(tokens.admin(), id);
+    }
+
+    protected ResponseSpec getAs(String token, Object id) {
+        return http.get().uri(APPOINTMENTS + "/{id}", id).headers(headers -> headers.setBearerAuth(token)).exchange();
     }
 
     protected ResponseSpec cancel(Object id) {
-        return http.post().uri(APPOINTMENTS + "/{id}/cancel", id).exchange();
+        return cancelAs(tokens.admin(), id);
+    }
+
+    protected ResponseSpec cancelAs(String token, Object id) {
+        return http.post().uri(APPOINTMENTS + "/{id}/cancel", id).headers(headers -> headers.setBearerAuth(token))
+                .exchange();
     }
 
     /** Asserts a problem response with the given status and code, and returns its body for more checks. */

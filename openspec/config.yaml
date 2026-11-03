@@ -13,8 +13,10 @@ context: |
   ApiException, GlobalExceptionHandler, /error controller), X-Request-Id and access log, and the
   read-only catalog endpoints with their JPA entities. Change add-appointment-booking added booking,
   reading and cancelling appointments, the scheduling domain (TimeRange, BusinessDay, StartTimeRule,
-  Allocator), idempotency and booking metrics. The availability search does not exist yet; the
-  architecture below is otherwise the intended design.
+  Allocator), idempotency and booking metrics. Change add-supabase-auth (2026-11-03) made the backend
+  an OAuth2 resource server for Supabase Auth access tokens, with roles customer, advisor and admin.
+  The availability search does not exist yet; the architecture below is otherwise the intended
+  design.
 
   Core requirements from the brief (acceptance criteria):
   1. Resource-constrained booking: request an appointment for a vehicle, service type and
@@ -30,6 +32,8 @@ context: |
     migrations; JPA with ddl-auto=validate (Flyway owns the schema). btree_gist is available.
     Tests never touch Supabase: they run on a Testcontainers postgres:17-alpine.
   - springdoc-openapi 3.1.1 (Swagger UI), Micrometer + Prometheus, Spring Boot Actuator
+  - Spring Security 7 OAuth2 resource server: Supabase Auth access tokens (ES256, JWKS from
+    SUPABASE_URL, audience authenticated); no login endpoints, no Supabase secret in the backend
   - Tests: JUnit Jupiter + AssertJ; Testcontainers (real PostgreSQL) for integration tests
   - Lombok: @Getter on JPA entities only (no @Setter/@Data/@EqualsAndHashCode/@ToString/@Builder);
     DTOs are records with static of() mappers; no MapStruct
@@ -62,6 +66,13 @@ context: |
     services throw ApiException(ErrorCode, args).
   - Successful responses are the resource itself (no envelope); collections are {"items": [...]}.
   - Idempotency-Key header on POST /api/v1/appointments, with a SHA-256 request fingerprint.
+  - Security is deny by default: public are the catalog, Swagger UI/OpenAPI and actuator health;
+    the rest of the actuator is admin-only; everything else needs a token. Roles come from
+    app_metadata only (scheduler_role, customer_id, dealership_id), never user_metadata. Resource
+    rules are in the pure security.AccessPolicy and are checked first by services: a booking before
+    the idempotency replay (403 FORBIDDEN), a read or cancel before anything else (404
+    APPOINTMENT_NOT_FOUND for an appointment the caller may not see). Tests mint their own tokens
+    (TestTokens) for Boot's real decoder and never call Supabase.
 
   Engineering with AI is an evaluated criterion: every non-trivial change should leave a trail
   (proposal/design/tasks) that shows how the AI was directed and how its output was verified.
