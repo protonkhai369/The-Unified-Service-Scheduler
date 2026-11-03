@@ -88,7 +88,8 @@ Alternatives:
 ```
 SecurityFilterChain (stateless, no sessions, CSRF off: no cookies are used)
   dispatcherTypeMatchers(ERROR, FORWARD)               permitAll   ← /error must render 401/403/500
-  GET  /api/v1/service-types, /api/v1/dealerships/**   permitAll
+  /api/v1/service-types, /api/v1/dealerships,
+  /api/v1/dealerships/{id}                             permitAll
   /v3/api-docs/**, /swagger-ui/**, /swagger-ui.html    permitAll
   /actuator/health, /actuator/health/**                permitAll
   /actuator/**                                         hasRole(ADMIN)   <- prometheus, metrics, info
@@ -97,6 +98,10 @@ SecurityFilterChain (stateless, no sessions, CSRF off: no cookies are used)
 
 - Every actuator endpoint except health is admin-only, not just Prometheus and metrics: `info` and
   the links page are operational too, and the stricter default costs nothing.
+- The catalog paths are listed one by one, not as `/api/v1/dealerships/**`. The wildcard made the
+  availability search (`/api/v1/dealerships/{id}/availability`, added by `add-availability-search`)
+  public by accident; it was found when the two branches were merged and now needs a token of any
+  role.
 - The catalog paths are permitted for every method, so `DELETE /api/v1/service-types` still answers
   `405`, as the error-responses spec requires.
 - A request that carries an invalid token gets `401` even on a public path, because

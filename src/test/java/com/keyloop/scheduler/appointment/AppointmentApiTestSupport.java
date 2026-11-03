@@ -84,7 +84,7 @@ public abstract class AppointmentApiTestSupport extends DatabaseIntegrationTest 
 
     protected ResponseSpec availability(long dealershipId, long serviceTypeId, String date) {
         return http.get().uri(AVAILABILITY + "?serviceTypeId={serviceTypeId}&date={date}", dealershipId, serviceTypeId,
-                date).exchange();
+                date).headers(headers -> headers.setBearerAuth(tokens.admin())).exchange();
     }
 
     protected List<Map<String, Object>> slots(Workshop workshop, String date) {

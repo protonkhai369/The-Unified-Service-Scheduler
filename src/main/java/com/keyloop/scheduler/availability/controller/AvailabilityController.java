@@ -14,7 +14,9 @@ import com.keyloop.scheduler.availability.dto.response.AvailabilityResponse;
 import com.keyloop.scheduler.availability.service.AvailabilityService;
 
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 
+@SecurityRequirement(name = "bearer")
 @RestController
 class AvailabilityController {
 

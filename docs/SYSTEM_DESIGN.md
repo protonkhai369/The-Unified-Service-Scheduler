@@ -118,7 +118,7 @@ Swagger UI: `/swagger-ui.html`.
 | `GET /api/v1/service-types` | public | `{"items": [...]}` of `id`, `code`, `name`, `durationMinutes` |
 | `GET /api/v1/dealerships` | public | `{"items": [...]}` of `id`, `name`, `timeZone`, `opens`, `closes` (`HH:mm`, local) |
 | `GET /api/v1/dealerships/{id}` | public | the dealership plus `serviceBays` and `technicians` (with `qualifiedServiceTypeIds`) |
-| `GET /api/v1/dealerships/{id}/availability?serviceTypeId=&date=` | currently public; policy pending | the bookable start times of one local day, with free bay and technician counts |
+| `GET /api/v1/dealerships/{id}/availability?serviceTypeId=&date=` | required (any role) | the bookable start times of one local day, with free bay and technician counts |
 | `POST /api/v1/appointments` | required | `201` + `Location`: the booked appointment; optional `Idempotency-Key` header |
 | `GET /api/v1/appointments/{id}` | required | the appointment in its current state |
 | `POST /api/v1/appointments/{id}/cancel` | required | `200`: the cancelled appointment (idempotent) |

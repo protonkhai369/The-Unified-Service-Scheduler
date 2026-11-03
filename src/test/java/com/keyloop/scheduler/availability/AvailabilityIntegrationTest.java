@@ -161,8 +161,8 @@ class AvailabilityIntegrationTest extends AppointmentApiTestSupport {
                 "Non-positive service type | serviceTypeId=0&date=2026-11-03 | serviceTypeId",
                 "Malformed date            | serviceTypeId=1&date=02/11/2026 | date" })
         void rejectsAMissingOrMalformedParameter(String scenario, String query, String field) {
-            problem(http.get().uri("/api/v1/dealerships/1/availability?" + query).exchange(), 400,
-                    "VALIDATION_FAILED")
+            problem(http.get().uri("/api/v1/dealerships/1/availability?" + query)
+                    .headers(headers -> headers.setBearerAuth(tokens.admin())).exchange(), 400, "VALIDATION_FAILED")
                     .jsonPath("$.errors[*].field").value((List<String> fields) -> assertThat(fields).containsExactly(field));
         }
     }

@@ -715,3 +715,44 @@ task. The user worked in Vietnamese; the artifacts and code are in English.
 - Live Supabase (task 7.2) is pending the user's go-ahead, because it creates real users. Until then,
   real Supabase tokens are verified only through the JWKS check made before the proposal.
 - `openspec validate add-supabase-auth --strict`: valid.
+
+## 2026-11-04 - Merge Supabase auth into availability search
+
+The user merged `main` (PR #7, `add-supabase-auth`) into `feat/availability-search` and asked the AI
+to handle the conflicts. Thirteen files conflicted.
+
+### Decisions
+
+- The conflicts had already been resolved in the working tree, by taking the auth side whole. That
+  brought back every comment the availability branch had removed on purpose, as the user confirmed.
+  The AI resolved the files again: auth's code with comment-only lines removed. A small script did
+  it.
+  - The script was checked first: applied to `main`, it reproduced the availability branch byte for
+    byte in the 8 files where that branch had only removed comments.
+  - `AppointmentApiTestSupport` was merged three ways, keeping the auth helpers (`bookAs`, `getAs`,
+    `cancelAs`) and the availability helpers.
+  - The previous resolution was kept in the scratchpad.
+- The four documents had been merged sensibly, keeping both sections, and were kept as they were.
+- Files that only auth added (package `security`, its tests and handlers) still carry their comments.
+  Whether to strip them is left to the user.
+
+### A gap found by the merge
+
+`SecurityConfiguration` permitted `/api/v1/dealerships/**` for the catalog, so the availability
+search, which did not exist when the rule was written, became public. The access-control spec says
+only the catalog is public, so the code was wrong, not the spec. The user asked for the missing
+authorisation to be added.
+- Test first: `AuthenticationIntegrationTest.availabilitySearchNeedsAToken` (401 without a token,
+  200 with a token of no role) and a bearer `security` entry on the operation in the OpenAPI test.
+  Both were red.
+- Fix: the catalog paths are listed one by one, and `AvailabilityController` has
+  `@SecurityRequirement(name = "bearer")`. The availability test helpers send an admin token.
+- The scenario "Availability search needs a token" was added to the access-control spec. The
+  availability search needs no role, because it reveals no personal data.
+
+### Verification
+
+- The merge resolution, before the fix: `./mvnw clean test` 282 passed, 0 failed;
+  `openspec validate --all --strict` 9 passed.
+- With the fix: `./mvnw clean test` 283 passed, 0 failed (red first: 2 failures in the new
+  assertions).
