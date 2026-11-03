@@ -16,9 +16,12 @@ change `add-scheduler-database`. Change `add-api-foundation` added the error pip
 and access log, and the read-only catalog endpoints (`/api/v1/service-types`, `/api/v1/dealerships`)
 with their JPA entities. Change `add-appointment-booking` added booking, reading and cancelling
 appointments (`/api/v1/appointments`), the pure `scheduling` domain, idempotency and booking metrics.
+Change `add-availability-search` added the read-only availability search
+(`/api/v1/dealerships/{id}/availability`), which lists the start times booking would accept by
+reusing booking's rules (`StartTimeRule`, `FreeResources`) and never takes the booking lock. Every
+specified capability now exists.
 Change `add-supabase-auth` made the backend an OAuth2 resource server for Supabase Auth access tokens,
-with roles `customer`, `advisor` and `admin` from `app_metadata`. The availability search does not
-exist yet.
+with roles `customer`, `advisor` and `admin` from `app_metadata`.
 
 ## Commands
 

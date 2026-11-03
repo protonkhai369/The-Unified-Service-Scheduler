@@ -4,11 +4,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 
-/**
- * A half-open period {@code [start, end)} between two instants, like the database's
- * {@code tstzrange(start_at, end_at, '[)')}: a range ending at 10:00 does not overlap one starting at
- * 10:00.
- */
 public record TimeRange(Instant start, Instant end) {
 
     public TimeRange {
@@ -27,7 +22,6 @@ public record TimeRange(Instant start, Instant end) {
         return this.start.isBefore(other.end) && other.start.isBefore(this.end);
     }
 
-    /** Whether {@code other} lies entirely within this range; ends may coincide. */
     public boolean contains(TimeRange other) {
         return !other.start.isBefore(this.start) && !other.end.isAfter(this.end);
     }

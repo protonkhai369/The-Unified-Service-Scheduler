@@ -13,7 +13,6 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 import com.keyloop.scheduler.DatabaseIntegrationTest;
 
-/** Spec: database-platform (isolated schema, portable migrations, tests start clean). */
 class SchemaPlatformIntegrationTest extends DatabaseIntegrationTest {
 
     private static final List<String> SCHEDULER_TABLES = List.of("appointment", "customer", "dealership",
@@ -23,7 +22,6 @@ class SchemaPlatformIntegrationTest extends DatabaseIntegrationTest {
 
     @AfterEach
     void dropSimulatedDataApiRoles() {
-        // Roles are cluster-wide; drop the database holding their privileges first.
         dropScratchDatabases();
         DATA_API_ROLES.forEach(role -> jdbc.sql("DROP ROLE IF EXISTS " + role).update());
     }
@@ -81,7 +79,6 @@ class SchemaPlatformIntegrationTest extends DatabaseIntegrationTest {
         DATA_API_ROLES.forEach(role -> jdbc.sql("CREATE ROLE " + role + " NOLOGIN").update());
         DataSource database = scratchDatabase("revoke_check");
         JdbcClient scratch = JdbcClient.create(database);
-        // Simulate a project that exposed the schema before V1 ran.
         scratch.sql("CREATE SCHEMA " + SCHEMA).update();
         scratch.sql("GRANT USAGE ON SCHEMA " + SCHEMA + " TO anon, authenticated").update();
         scratch.sql("ALTER DEFAULT PRIVILEGES IN SCHEMA " + SCHEMA + " GRANT ALL ON TABLES TO anon, authenticated").update();

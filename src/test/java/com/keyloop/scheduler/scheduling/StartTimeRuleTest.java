@@ -10,7 +10,6 @@ import java.time.ZoneOffset;
 
 import org.junit.jupiter.api.Test;
 
-/** A dealership open 08:00-18:00 on 3 November 2026, in a UTC+0 zone for readable times. */
 class StartTimeRuleTest {
 
     private static final BusinessDay DAY = new BusinessDay(LocalDate.parse("2026-11-03"), ZoneOffset.UTC,

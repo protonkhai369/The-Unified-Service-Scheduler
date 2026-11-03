@@ -22,7 +22,6 @@ import com.keyloop.scheduler.catalog.repository.TechnicianSkillRepository;
 import com.keyloop.scheduler.web.error.ApiException;
 import com.keyloop.scheduler.web.error.ErrorCode;
 
-/** Read-only dealerships with their bays and technicians. Catalog rows change only through migrations. */
 @Service
 @Transactional(readOnly = true)
 public class DealershipService {
@@ -47,7 +46,6 @@ public class DealershipService {
         return this.dealerships.findAll(Sort.by("id")).stream().map(DealershipSummaryResponse::of).toList();
     }
 
-    /** Four queries whatever the number of technicians: dealership, bays, technicians, their skills. */
     public DealershipResponse dealership(long id) {
         Dealership dealership = this.dealerships.findById(id)
                 .orElseThrow(() -> new ApiException(ErrorCode.DEALERSHIP_NOT_FOUND, id));

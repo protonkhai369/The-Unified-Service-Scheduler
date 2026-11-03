@@ -473,6 +473,162 @@ without recording it as a decision. It offered three options, and the user chose
   the hosted database was not used. The other 50 tests passed.
 - Removed trailing blank lines in two specs flagged by `git diff --check`.
 
+## 2026-11-03 - add-availability-search (OpenSpec change)
+
+`GET /api/v1/dealerships/{id}/availability?serviceTypeId=&date=`, the last specified capability
+that was still missing. Driven through OpenSpec with Claude Code: explore, propose, human review
+(which cut the test plan), then `/opsx:apply` with tests written before each implementation task.
+The user worked in Vietnamese; the artifacts and code are in English.
+
+### Problems found in the spec before implementation (explore)
+
+- **A start equal to "now" would have been listed and then refused.** The spec said "MUST NOT list
+  start times earlier than the current time", while booking rejects a start that is not after now
+  (`START_TIME_IN_PAST`). At exactly 09:00:00, the 09:00 slot would have been offered and rejected
+  with `422`. The rule is now "only start times after the current instant", and `SlotFinder` filters
+  candidates with booking's own `StartTimeRule`, so the two cannot diverge.
+- Slot times had no defined format. There was no time-zone scenario, although `openspec/config.yaml`
+  requires one for anything touching availability. A past date had no defined answer, the two `404`s
+  had no order, and the purpose claimed "bookable unless another request takes it first", which
+  ignored `VEHICLE_ALREADY_BOOKED`.
+
+### Decisions taken with the user (explore and propose)
+
+- Slots carry `startTime` and `endTime` as `OffsetDateTime` with the dealership's offset, in the
+  same form as an appointment, so `startTime` can be sent unchanged to the booking endpoint.
+- A past date, or today once nothing can start, is `200` with empty `slots`, not `422`.
+- Vehicle conflicts: only the spec's purpose is reworded; no `vehicleId` filter.
+- The search calls the repositories itself rather than through a loader shared with booking. The
+  round-trip test therefore became mandatory, because it is what notices if the two read different
+  data.
+- **Test plan cut.** The user asked why there were so many tests. The first task list had about 45,
+  27 of them on Docker. It re-tested every domain rule over HTTP, re-tested booking's own `409`s,
+  and gave `FreeResources` its own tests. The rule adopted: test each rule at the cheapest level where
+  it lives, with exactly one test per spec scenario (table in design decision 7). The property test
+  and the round-trip test were kept as the two proofs that search and booking agree.
+
+### Decisions taken by the AI
+
+- `FreeResources` was extracted from `Allocator`: the bays and technicians with no overlapping
+  commitment. Allocation picks from it and the search counts it, so "free" has one definition.
+  `Allocator`'s signature and `AllocatorTest` are unchanged, and `BookingAttempt` only gained a
+  cross-reference comment.
+- Candidates are generated on the local clock (`opens + k × step`) and kept once per instant, because
+  a daylight saving gap moves a nonexistent local time onto an existing one.
+- `READ COMMITTED`, not the `REPEATABLE READ` suggested during explore: every appointment is read by
+  one statement, and catalog rows change only through migrations, so one snapshot already holds.
+- No lock, no new metric, no new log event (reasons in design.md and `docs/SYSTEM_DESIGN.md`).
+- A day whose closing instant has passed is answered without reading appointments. This also keeps
+  absurd past dates away from the database.
+- The property test checks every minute of each random day against `StartTimeRule` and `Allocator`.
+  It does not re-enumerate the grid the way `SlotFinder` does, so it cannot share a generation bug.
+  Its counts come from an overlap check written in the test.
+- Left open (design.md): a date with an expanded year such as `+300000-01-01` parses, but lies
+  beyond PostgreSQL's timestamp range and gives `500`. Booking's `startTime` has the same gap, so the
+  fix belongs in a change that covers both.
+
+### Problems found during implementation
+
+- The background baseline run started before the `FreeResources` refactor was saved, but compiled it
+  (58 main sources). It therefore verified the refactor (204/204, `AllocatorTest` 9/9) instead of
+  the code before it. No separate pre-change run was made; `main` had been green when merged.
+- The tests of group 3 and the OpenAPI test passed on their first run, because group 2 had already
+  built the behaviour they check. Each was shown able to fail with a mutation (below), except the
+  OpenAPI test, which springdoc satisfies from the controller.
+- The lock mutation also failed `concurrentRequestsInDifferentOffsets`. The search blocked on the
+  lock outlived its own test, and dealership ids restart at 1 after the per-test truncate. This
+  happens only with the mutation, but it means that if `searchDuringABookingInProgress` ever fails, a
+  second failure in a nearby concurrency test may be a consequence of the first.
+- The plan estimated about 25 new tests, 13 of them on Docker. The result is 29: 12 unit and 17
+  integration runs. The three `404`s are separate tests, and the parameterized `400` test runs three
+  times.
+
+### Verification
+
+- `./mvnw clean test`: `Tests run: 233, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS (204
+  before, 29 new).
+- `./mvnw test -DargLine=-Duser.timezone=Asia/Kathmandu`: 233 passed, with log timestamps at
+  `+05:45`.
+- Red before green:
+  - `SlotFinderTest` against a stub returning no slots: 11 of 12 failed. The twelfth expects an empty
+    list.
+  - `AvailabilityIntegrationTest` before the endpoint existed: 12 of 12 failed with `404 NOT_FOUND`.
+- `SlotFinderTest`: 12 tests in 0.35 s, including the 400 random cases.
+- Mutations, each reverted afterwards (`diff` against a copy):
+
+| Mutation | Tests that failed |
+| --- | --- |
+| `SlotFinder` ignores "now" (opening hours only) | property test, `sameDayQuery`, `queryAtAnExactSlotTime`, `todayAfterTheLastStart` |
+| `SlotFinder` reports every bay instead of the free ones | property test, `remainingCapacityIsReported` |
+| The search reads inactive bays too | `unqualifiedInactiveAndForeignResourcesAreNotCounted` |
+| The search takes the dealership-day lock | `searchDuringABookingInProgress` (plus the follow-on failure above) |
+| The search ignores the day's appointments | round-trip test, `aBookingRemovesTheSlotsItOverlaps` |
+
+- Manual run: `spring-boot:run` on a throwaway `postgres:17-alpine` with the demo data. Flyway
+  migrated a fresh schema, so Supabase was not used. On 2026-11-03 at 09:49Z:
+  - Saigon, oil change (45 minutes), 2026-11-04: 19 slots, 07:30 to 16:30, all `2/2`;
+  - booking the first slot's `startTime` unchanged gave `201`, Bay B and Tran Thi Binh;
+  - searching again showed 07:30 and 08:00 at `1/1`, and 08:30 still at `2/2`;
+  - today: London 15 slots from `10:00Z`; Saigon none, because 16:49 local is past the last start
+    at 16:45;
+  - `404 DEALERSHIP_NOT_FOUND` for dealership 99; `400 VALIDATION_FAILED` with an `errors` entry for
+    `date` for `04/11/2026`;
+  - cancelling restored `2/2`;
+  - access-log lines took 15-20 ms (213 ms for the first, cold request); Swagger UI was served
+    (`200`). The container was removed.
+- `openspec validate add-availability-search --strict`: valid. `openspec validate --all --strict`:
+  9 passed, 0 failed.
+
+| Scenario | Test |
+| --- | --- |
+| Slots respect opening hours / Service longer than the step | `SlotFinderTest.slotsRespectOpeningHours`, `serviceLongerThanTheStep` |
+| Response describes the context / Times in the dealership's offset | `AvailabilityIntegrationTest.responseDescribesTheContext`, `timesInTheDealershipsOffset` |
+| Daylight saving day | `SlotFinderTest.daylightSavingDay` (instants), plus `aDaylightSavingGapInsideOpeningHoursYieldsNoDuplicateStart` |
+| Fully booked / Remaining capacity / Bays free but no technician / Back-to-back | `SlotFinderTest.fullyBookedTimeIsHidden`, `remainingCapacityIsReported`, `baysFreeButNoQualifiedTechnicianFree`, `backToBackStartIsListed` |
+| Unqualified, inactive and foreign resources / Cancelled appointments | `AvailabilityIntegrationTest.unqualifiedInactiveAndForeignResourcesAreNotCounted`, `cancelledAppointmentsDoNotOccupyResources` |
+| Same-day query / Query at an exact slot time / Today after the last start | `SlotFinderTest.sameDayQuery`, `queryAtAnExactSlotTime`, `todayAfterTheLastStart` |
+| Date in the past / Today is the dealership's date | `AvailabilityIntegrationTest.dateInThePast`, `todayIsTheDealershipsDate` |
+| Validation: three `404` scenarios | `AvailabilityIntegrationTest.unknownDealership`, `unknownServiceType`, `unknownDealershipAndServiceType` |
+| Validation: Missing service type / Non-positive service type / Malformed date | `AvailabilityIntegrationTest.rejectsAMissingOrMalformedParameter` [1]-[3] |
+| A booking removes the slots it overlaps / Listed slot taken by another customer | `AvailabilityBookingIntegrationTest.aBookingRemovesTheSlotsItOverlaps`, `listedSlotTakenByAnotherCustomer` |
+| Search during a booking in progress | `BookingConcurrencyIntegrationTest.searchDuringABookingInProgress` |
+| Listed slot but the vehicle is busy | existing `AppointmentBookingIntegrationTest.sameInstantAtDealershipsInDifferentTimeZones` |
+| (agreement with booking) | `SlotFinderTest.listsExactlyTheStartsBookingWouldAccept`, `AvailabilityBookingIntegrationTest.listsExactlyTheStartsThatBookingAccepts` |
+
+Gaps:
+- "Daylight saving day" is checked on instants. The `+01:00` formatting on that date is not checked
+  over HTTP; the same conversion is checked with `+07:00` in `timesInTheDealershipsOffset`.
+- Swagger UI's "Try it out" was not clicked. The page is served, the operation is documented (test),
+  and the same request ran with cURL.
+- In a fall-back overlap inside opening hours, the second occurrence of a local time is not offered
+  (a documented risk; no dealership opens across a transition).
+- The expanded-year `500` is an open question shared with booking.
+
+### 2026-11-04 - Code review and comment cleanup (Codex)
+
+- Reviewed the current working tree, including the existing uncommitted availability implementation.
+  Preserved those changes. Removed comments from 93 Java files and seven project configuration,
+  script and SQL files. Compared executable tokens/content against a pre-edit snapshot; Java
+  strings and text blocks were preserved. Kept the applied V1 migration unchanged to preserve its
+  Flyway checksum, and retained third-party Maven wrapper license headers and the shell shebang.
+- New finding: `BookingAttempt.runInTransaction` does not recheck the start against the Clock after
+  acquiring the advisory lock. A temporary Testcontainers HTTP probe held that lock, submitted a
+  10:00 booking at 09:59:59, advanced the Clock to 10:00:01 and released the lock. The API returned
+  201 and persisted `created_at > start_at`. Recommend rechecking after the replay lookup.
+- Reproduced the previously documented expanded-year gap over HTTP: availability for
+  `+300000-01-01` and booking at `+300000-01-01T10:00:00Z` both returned 500 with PostgreSQL
+  timestamp-out-of-range errors. A shared supported date range needs a spec decision before fixing.
+- Domain probe: London 2026-03-29 opening 01:00 and closing 02:00 resolve to the same instant;
+  `BusinessDay.openingHours` throws instead of representing no usable hours. Separately confirmed
+  the already documented fall-back second-occurrence omission in `SlotFinder`; this remains a
+  known limitation, not a newly introduced regression. No behavioral fixes were applied.
+- Verification: JDK 23 with cached Maven 3.10.0; 233 existing tests passed initially, then 235 tests
+  passed after cleanup (233 existing plus two temporary diagnostic tests). The diagnostic tests
+  asserted the observed bugs, not corrected behavior, and were removed after review.
+  All database tests used PostgreSQL Testcontainers, never Supabase. OpenSpec strict validation:
+  8 passed, 0 failed. `git diff --check` passed. `mvnw.cmd` itself still fails on a null `Target[0]`
+  lookup in this environment, so verification invoked the cached Maven executable directly.
+
 ## 2026-11-03 - add-supabase-auth (OpenSpec change)
 
 Login and authorisation with Supabase Auth: the backend became an OAuth2 resource server for
@@ -559,3 +715,44 @@ task. The user worked in Vietnamese; the artifacts and code are in English.
 - Live Supabase (task 7.2) is pending the user's go-ahead, because it creates real users. Until then,
   real Supabase tokens are verified only through the JWKS check made before the proposal.
 - `openspec validate add-supabase-auth --strict`: valid.
+
+## 2026-11-04 - Merge Supabase auth into availability search
+
+The user merged `main` (PR #7, `add-supabase-auth`) into `feat/availability-search` and asked the AI
+to handle the conflicts. Thirteen files conflicted.
+
+### Decisions
+
+- The conflicts had already been resolved in the working tree, by taking the auth side whole. That
+  brought back every comment the availability branch had removed on purpose, as the user confirmed.
+  The AI resolved the files again: auth's code with comment-only lines removed. A small script did
+  it.
+  - The script was checked first: applied to `main`, it reproduced the availability branch byte for
+    byte in the 8 files where that branch had only removed comments.
+  - `AppointmentApiTestSupport` was merged three ways, keeping the auth helpers (`bookAs`, `getAs`,
+    `cancelAs`) and the availability helpers.
+  - The previous resolution was kept in the scratchpad.
+- The four documents had been merged sensibly, keeping both sections, and were kept as they were.
+- Files that only auth added (package `security`, its tests and handlers) still carry their comments.
+  Whether to strip them is left to the user.
+
+### A gap found by the merge
+
+`SecurityConfiguration` permitted `/api/v1/dealerships/**` for the catalog, so the availability
+search, which did not exist when the rule was written, became public. The access-control spec says
+only the catalog is public, so the code was wrong, not the spec. The user asked for the missing
+authorisation to be added.
+- Test first: `AuthenticationIntegrationTest.availabilitySearchNeedsAToken` (401 without a token,
+  200 with a token of no role) and a bearer `security` entry on the operation in the OpenAPI test.
+  Both were red.
+- Fix: the catalog paths are listed one by one, and `AvailabilityController` has
+  `@SecurityRequirement(name = "bearer")`. The availability test helpers send an admin token.
+- The scenario "Availability search needs a token" was added to the access-control spec. The
+  availability search needs no role, because it reveals no personal data.
+
+### Verification
+
+- The merge resolution, before the fix: `./mvnw clean test` 282 passed, 0 failed;
+  `openspec validate --all --strict` 9 passed.
+- With the fix: `./mvnw clean test` 283 passed, 0 failed (red first: 2 failures in the new
+  assertions).

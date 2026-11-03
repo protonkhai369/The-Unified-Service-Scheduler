@@ -53,6 +53,11 @@ carries an invalid token SHALL also receive `401`.
 - **WHEN** `GET /api/v1/no-such-path` is sent without a token
 - **THEN** the response is `401` with code `UNAUTHENTICATED`
 
+#### Scenario: Availability search needs a token
+- **WHEN** `GET /api/v1/dealerships/{id}/availability` is sent without a token
+- **THEN** the response is `401` with code `UNAUTHENTICATED`
+- **AND** with a valid token of any role, or of no role, the search is processed
+
 #### Scenario: Public endpoint with an invalid token
 - **WHEN** `GET /api/v1/dealerships` is sent with an expired token
 - **THEN** the response is `401` with code `UNAUTHENTICATED`

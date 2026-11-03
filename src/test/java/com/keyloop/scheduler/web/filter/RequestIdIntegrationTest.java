@@ -13,7 +13,6 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import com.keyloop.scheduler.DatabaseIntegrationTest;
 import com.keyloop.scheduler.web.ProbeConfiguration;
 
-/** Observability spec: "Request correlation id" and "Access log". */
 @ExtendWith(OutputCaptureExtension.class)
 class RequestIdIntegrationTest extends DatabaseIntegrationTest {
 

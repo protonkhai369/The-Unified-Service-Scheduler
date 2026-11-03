@@ -23,10 +23,6 @@ import com.keyloop.scheduler.DatabaseFixtures.Workshop;
 import com.keyloop.scheduler.appointment.AppointmentApiTestSupport;
 import com.keyloop.scheduler.security.TestTokens;
 
-/**
- * observability spec, "Booking metrics" (the lost-race counter is checked by the concurrency test), and
- * the booking log events. Counters are shared by the whole test context, so tests compare deltas.
- */
 @DisplayName("Booking metrics")
 @ExtendWith(OutputCaptureExtension.class)
 class BookingMetricsIntegrationTest extends AppointmentApiTestSupport {
@@ -97,7 +93,6 @@ class BookingMetricsIntegrationTest extends AppointmentApiTestSupport {
     @Test
     @DisplayName("Unexpected failure counted")
     void unexpectedFailureCounted() {
-        // The database only checks the zone's length; an unknown IANA id fails inside the booking flow.
         Workshop broken = fixtures.workshop("Broken zone", "Mars/Olympus", LocalTime.of(8, 0), LocalTime.of(18, 0),
                 60, 1, 1);
         double errors = bookings("error");

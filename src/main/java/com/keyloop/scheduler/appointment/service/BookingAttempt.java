@@ -26,17 +26,9 @@ import com.keyloop.scheduler.scheduling.Commitment;
 import com.keyloop.scheduler.web.error.ApiException;
 import com.keyloop.scheduler.web.error.ErrorCode;
 
-/**
- * One allocation attempt in one {@code READ COMMITTED} transaction. It first queues on a transaction-scoped
- * advisory lock for the dealership and local day, so bookings that could compete for a bay or a
- * technician run one after another and each sees the bookings committed before it. The exclusion
- * constraints remain the guarantee; the lock only stops concurrent requests from failing because of
- * each other. A database failure is classified by {@link BookingFailures}.
- */
 @Component
 class BookingAttempt {
 
-    /** What one attempt achieved; failures that end the booking are thrown as {@link ApiException}. */
     sealed interface Outcome {
     }
 
@@ -46,7 +38,6 @@ class BookingAttempt {
     record Replayed(AppointmentResponse appointment) implements Outcome {
     }
 
-    /** Another writer took the allocated bay or technician first; the next attempt reads fresh data. */
     record LostRace(String constraint) implements Outcome {
     }
 
@@ -82,7 +73,6 @@ class BookingAttempt {
         this.clock = clock;
     }
 
-    /** The advisory lock key of a dealership-day; hash collisions only serialise unrelated days. */
     static String lockKey(long dealershipId, LocalDate date) {
         return "booking:" + dealershipId + ":" + date;
     }
@@ -98,7 +88,6 @@ class BookingAttempt {
 
     private Outcome runInTransaction(BookingContext context) {
         waitForTurn(context);
-        // A duplicate of this request may have committed while this one waited.
         Optional<AppointmentResponse> replay = this.replays.find(context.idempotencyKey(), context.fingerprint());
         if (replay.isPresent()) {
             return new Replayed(replay.get());
@@ -128,7 +117,6 @@ class BookingAttempt {
                 bayName(bays, allocation.bayId()), technicianName(qualified, allocation.technicianId())));
     }
 
-    /** Bounded by {@code lock_timeout}, which also bounds waits on another transaction's conflicting row. */
     private void waitForTurn(BookingContext context) {
         this.jdbc.sql("SELECT set_config('lock_timeout', :timeout, true)")
                 .param("timeout", this.properties.bookingLockTimeout().toMillis() + "ms")

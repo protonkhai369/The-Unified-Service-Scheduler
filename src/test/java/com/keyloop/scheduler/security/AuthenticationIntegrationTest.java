@@ -87,6 +87,19 @@ class AuthenticationIntegrationTest extends AppointmentApiTestSupport {
     }
 
     @Test
+    @DisplayName("Availability search needs a token")
+    void availabilitySearchNeedsAToken() {
+        Workshop workshop = london(60, 1, 1);
+        String path = "/api/v1/dealerships/{id}/availability?serviceTypeId={serviceTypeId}&date=2026-11-03";
+
+        unauthenticated(http.get().uri(path, workshop.dealershipId(), workshop.serviceTypeId()).exchange());
+        http.get().uri(path, workshop.dealershipId(), workshop.serviceTypeId())
+                .headers(headers -> headers.setBearerAuth(tokens.withoutRole()))
+                .exchange()
+                .expectStatus().isOk();
+    }
+
+    @Test
     @DisplayName("Health without a token")
     void healthWithoutToken() {
         http.get().uri("/actuator/health/readiness").exchange().expectStatus().isOk();

@@ -12,7 +12,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import com.keyloop.scheduler.DatabaseIntegrationTest;
 
-/** Spec: scheduling-data-model, requirement "Reference data integrity". */
 class ReferenceDataIntegrationTest extends DatabaseIntegrationTest {
 
     private static final String VALID_VIN = "WVWZZZ1KZ8W000001";
@@ -34,13 +33,13 @@ class ReferenceDataIntegrationTest extends DatabaseIntegrationTest {
     @ParameterizedTest(name = "VIN \"{0}\"")
     @DisplayName("A VIN that is not 17 characters of A-H, J-N, P, R-Z, 0-9 is rejected")
     @ValueSource(strings = {
-            "WVWZZZ1KZ8W00000I", // letter I
-            "WVWZZZ1KZ8W00000O", // letter O
-            "WVWZZZ1KZ8W00000Q", // letter Q
-            "wvwzzz1kz8w000001", // lower case
-            "WVWZZZ1KZ8W00001", // 16 characters
-            "WVWZZZ1KZ8W0000001", // 18 characters
-            "WVWZZZ1KZ8W 00001" // space
+            "WVWZZZ1KZ8W00000I",
+            "WVWZZZ1KZ8W00000O",
+            "WVWZZZ1KZ8W00000Q",
+            "wvwzzz1kz8w000001",
+            "WVWZZZ1KZ8W00001",
+            "WVWZZZ1KZ8W0000001",
+            "WVWZZZ1KZ8W 00001"
     })
     void rejectsMalformedVin(String vin) {
         long customer = fixtures.customer("Emma");

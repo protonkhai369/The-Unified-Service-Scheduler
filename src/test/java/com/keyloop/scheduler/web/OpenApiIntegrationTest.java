@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 
 import com.keyloop.scheduler.DatabaseIntegrationTest;
 
-/** The generated OpenAPI document (Swagger UI's source) still works next to the exception handler. */
 class OpenApiIntegrationTest extends DatabaseIntegrationTest {
 
     @Test
@@ -43,7 +42,7 @@ class OpenApiIntegrationTest extends DatabaseIntegrationTest {
 
     /** access-control spec: Swagger UI's "Authorize" sends the token on appointment calls only. */
     @Test
-    void declaresTheBearerSchemeOnTheAppointmentOperations() {
+    void declaresTheBearerSchemeOnTheProtectedOperations() {
         http.get().uri("/v3/api-docs")
                 .exchange()
                 .expectStatus().isOk()
@@ -54,11 +53,30 @@ class OpenApiIntegrationTest extends DatabaseIntegrationTest {
                 .jsonPath("$.paths['/api/v1/appointments'].post.security[0].bearer").isArray()
                 .jsonPath("$.paths['/api/v1/appointments/{id}'].get.security[0].bearer").isArray()
                 .jsonPath("$.paths['/api/v1/appointments/{id}/cancel'].post.security[0].bearer").isArray()
+                .jsonPath("$.paths['/api/v1/dealerships/{dealershipId}/availability'].get.security[0].bearer").isArray()
                 .jsonPath("$.paths['/api/v1/dealerships'].get.security").doesNotExist()
+                .jsonPath("$.paths['/api/v1/dealerships/{id}'].get.security").doesNotExist()
                 .jsonPath("$.security").doesNotExist()
                 // The caller comes from the token, never from a parameter.
                 .jsonPath("$.paths['/api/v1/appointments/{id}'].get.parameters[*].name")
                 .value((List<String> names) -> assertThat(names).containsExactly("id"));
+    }
+
+    @Test
+    void documentsTheAvailabilityEndpoint() {
+        String operation = "$.paths['/api/v1/dealerships/{dealershipId}/availability'].get";
+        http.get().uri("/v3/api-docs")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath(operation + ".parameters[?(@.name == 'serviceTypeId')].required")
+                .value((List<Boolean> required) -> assertThat(required).containsExactly(true))
+                .jsonPath(operation + ".parameters[?(@.name == 'date')].required")
+                .value((List<Boolean> required) -> assertThat(required).containsExactly(true))
+                .jsonPath(operation + ".parameters[?(@.name == 'date')].schema.format")
+                .value((List<String> format) -> assertThat(format).containsExactly("date"))
+                .jsonPath(operation + ".responses['200'].content['*/*'].schema['$ref']")
+                .isEqualTo("#/components/schemas/AvailabilityResponse");
     }
 
     @Test

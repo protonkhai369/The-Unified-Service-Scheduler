@@ -29,7 +29,6 @@ class BusinessDayTest {
 
     @Test
     void openingHoursFollowDaylightSavingTime() {
-        // British Summer Time starts at 01:00 UTC on 2026-03-29: 08:00-18:00 local is 07:00Z-17:00Z.
         BusinessDay day = new BusinessDay(LocalDate.parse("2026-03-29"), LONDON, LocalTime.of(8, 0), LocalTime.of(18, 0));
 
         assertThat(day.openingHours())
@@ -38,7 +37,6 @@ class BusinessDayTest {
 
     @Test
     void containingPicksTheLocalDateNotTheUtcDate() {
-        // 18:00Z on 2 November is 01:00 on 3 November in Saigon.
         BusinessDay day = BusinessDay.containing(Instant.parse("2026-11-02T18:00:00Z"), SAIGON, LocalTime.of(7, 30),
                 LocalTime.of(17, 30));
 
@@ -66,9 +64,7 @@ class BusinessDayTest {
     void gridIgnoresTheOffsetTheClientUsed() {
         BusinessDay saigon = saigonDay();
 
-        // 08:45 in Kathmandu (+05:45) is 10:00 in Saigon: on the grid.
         assertThat(saigon.isOnGrid(instant("2026-11-03T08:45:00+05:45"), HALF_HOUR)).isTrue();
-        // 10:00 in Kathmandu is 11:15 in Saigon: off the grid.
         assertThat(saigon.isOnGrid(instant("2026-11-03T10:00:00+05:45"), HALF_HOUR)).isFalse();
     }
 

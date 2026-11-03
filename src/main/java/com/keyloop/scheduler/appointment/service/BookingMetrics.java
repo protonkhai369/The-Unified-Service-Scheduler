@@ -12,12 +12,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 
 import com.keyloop.scheduler.web.error.ErrorCode;
 
-/**
- * {@code scheduler_bookings_total{outcome}} and {@code scheduler_booking_conflicts_total}. Every series
- * is registered at startup, so dashboards see zeros rather than missing series. Requests rejected
- * with {@code 400} never reach the booking service and are counted only by
- * {@code http_server_requests_seconds}.
- */
 @Component
 class BookingMetrics {
 
@@ -48,7 +42,6 @@ class BookingMetrics {
         }).increment();
     }
 
-    /** An unexpected failure, answered with 500 INTERNAL_ERROR. */
     void failed() {
         this.outcomes.get("error").increment();
     }

@@ -10,13 +10,8 @@ import java.util.UUID;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 
-/**
- * Inserts scheduler rows with plain SQL and returns their ids. Every method is a single statement,
- * so a test can also pass one to {@link SqlAssertions} to assert that the database rejects it.
- */
 public final class DatabaseFixtures {
 
-    /** A valid request fingerprint (64 lowercase hex characters). */
     public static final String FINGERPRINT = "0123456789abcdef".repeat(4);
 
     private final JdbcClient jdbc;
@@ -84,7 +79,6 @@ public final class DatabaseFixtures {
         skill(technicianId, serviceTypeId, true);
     }
 
-    /** A qualification; {@code active = false} is one that has been retired. */
     public void skill(long technicianId, long serviceTypeId, boolean active) {
         jdbc.sql("INSERT INTO technician_skill (technician_id, service_type_id, active) VALUES (:technician, :serviceType, :active)")
                 .param("technician", technicianId)
@@ -101,7 +95,6 @@ public final class DatabaseFixtures {
                 .single();
     }
 
-    /** A vehicle with a fresh, valid VIN. */
     public long vehicle(long customerId) {
         return vehicle(customerId, "TSTVHCL%010d".formatted(nextSequence()));
     }
@@ -116,7 +109,6 @@ public final class DatabaseFixtures {
                 .single();
     }
 
-    /** Inserts the appointment with a fresh idempotency key. */
     public UUID appointment(NewAppointment appointment) {
         return insertAppointment(jdbc, appointment, UUID.randomUUID().toString());
     }
@@ -125,7 +117,6 @@ public final class DatabaseFixtures {
         return insertAppointment(jdbc, appointment, idempotencyKey);
     }
 
-    /** Inserts through the given client, e.g. one bound to a connection with an open transaction. */
     public static UUID insertAppointment(JdbcClient client, NewAppointment appointment, String idempotencyKey) {
         return client.sql("""
                 INSERT INTO appointment (dealership_id, customer_id, vehicle_id, service_type_id, service_bay_id,
@@ -148,11 +139,6 @@ public final class DatabaseFixtures {
                 .single();
     }
 
-    /**
-     * A dealership ready for bookings: one service type of the given duration, {@code bays} active
-     * bays and {@code technicians} active technicians qualified for it, created in name order (so
-     * ids ascend with the names "Bay 1", "Bay 2", ... and "Technician 1", ...).
-     */
     public Workshop workshop(String name, String timeZone, LocalTime opens, LocalTime closes, int durationMinutes,
             int bays, int technicians) {
         long dealershipId = dealership(name, timeZone, opens, closes);
@@ -170,7 +156,6 @@ public final class DatabaseFixtures {
         return new Workshop(dealershipId, serviceTypeId, List.copyOf(bayIds), List.copyOf(technicianIds));
     }
 
-    /** The JSON body of {@code POST /api/v1/appointments}. */
     public static Map<String, Object> bookingRequest(long dealershipId, long customerId, long vehicleId,
             long serviceTypeId, String startTime) {
         Map<String, Object> body = new LinkedHashMap<>();
@@ -186,7 +171,6 @@ public final class DatabaseFixtures {
         return ++sequence;
     }
 
-    /** What {@link #workshop} created; lists are in id order. */
     public record Workshop(long dealershipId, long serviceTypeId, List<Long> bayIds, List<Long> technicianIds) {
 
         public long bay(int number) {
@@ -197,7 +181,6 @@ public final class DatabaseFixtures {
             return technicianIds.get(number - 1);
         }
 
-        /** A confirmed appointment in this workshop on the given bay and technician. */
         public NewAppointment appointment(long customerId, long vehicleId, int bayNumber, int technicianNumber,
                 OffsetDateTime startAt, OffsetDateTime endAt) {
             return NewAppointment.confirmed(dealershipId, customerId, vehicleId, serviceTypeId, bay(bayNumber),
@@ -209,7 +192,6 @@ public final class DatabaseFixtures {
         }
     }
 
-    /** The columns of an appointment insert; the idempotency key is passed separately. */
     public record NewAppointment(long dealershipId, long customerId, long vehicleId, long serviceTypeId,
             long serviceBayId, long technicianId, OffsetDateTime startAt, OffsetDateTime endAt, String status,
             String requestFingerprint) {

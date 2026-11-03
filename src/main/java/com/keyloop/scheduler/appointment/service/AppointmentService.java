@@ -18,10 +18,6 @@ import com.keyloop.scheduler.security.AuthenticatedUser;
 import com.keyloop.scheduler.web.error.ApiException;
 import com.keyloop.scheduler.web.error.ErrorCode;
 
-/**
- * Reads and cancels appointments. Booking lives in {@link BookingService}. An appointment the caller
- * may not see answers 404 exactly like an unknown id, so a response never confirms that it exists.
- */
 @Service
 public class AppointmentService {
 
@@ -41,14 +37,6 @@ public class AppointmentService {
         return AppointmentResponse.of(visibleView(id, caller));
     }
 
-    /**
-     * One conditional update decides, so concurrent cancellations cannot both change the row: the
-     * second waits for the first's row lock, re-checks the condition on the committed row and changes
-     * nothing. Zero rows changed then means unknown, already cancelled (fine) or already started.
-     * Does not take the booking lock: cancelling only frees resources. Visibility is checked before the
-     * update, so a caller who may not see the appointment cannot cancel it; the dealership and customer
-     * it checks never change after insert.
-     */
     @Transactional
     public AppointmentResponse cancel(UUID id, AuthenticatedUser caller) {
         visibleView(id, caller);

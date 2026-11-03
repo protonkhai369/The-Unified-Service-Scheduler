@@ -23,15 +23,6 @@ import com.keyloop.scheduler.security.TestSecurityConfiguration;
 import com.keyloop.scheduler.security.TestTokens;
 import com.keyloop.scheduler.web.ProbeConfiguration;
 
-/**
- * Base for tests that need the real schema or the real HTTP stack. Every subclass shares one Spring
- * context, one PostgreSQL container and one embedded server on a random port; Flyway applies only the
- * schema migrations (never the demo data), every scheduler table is emptied and the clock is reset to
- * {@link MutableClock#TEST_START} before each test. A real server rather than MockMvc, because only a
- * servlet container forwards failures to /error. Metrics export is on, so /actuator/prometheus works.
- * The booking lock timeout is shorter than in production to keep the timeout test fast. Access tokens
- * are signed by {@link TestTokens}, never by Supabase.
- */
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT,
         properties = { "spring.flyway.locations=classpath:db/migration", "scheduler.booking-lock-timeout=2s",
                 "SUPABASE_URL=" + TestSecurityConfiguration.SUPABASE_URL })
@@ -54,15 +45,12 @@ public abstract class DatabaseIntegrationTest {
     @Autowired
     private PostgreSQLContainer postgres;
 
-    /** The application's clock; tests move it to check rules about "now". */
     @Autowired
     protected MutableClock clock;
 
-    /** Sends real HTTP requests to the embedded server. */
     @Autowired
     protected RestTestClient http;
 
-    /** Signs access tokens the application accepts, for any role. */
     @Autowired
     protected TestTokens tokens;
 
@@ -83,10 +71,6 @@ public abstract class DatabaseIntegrationTest {
         scratchDatabases.clear();
     }
 
-    /**
-     * Creates an empty database in the shared container, for tests that drive Flyway themselves
-     * and must not touch the schema the Spring context migrated. Dropped after the test.
-     */
     protected DataSource scratchDatabase(String name) {
         jdbc.sql("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)").update();
         jdbc.sql("CREATE DATABASE " + name).update();
@@ -96,7 +80,6 @@ public abstract class DatabaseIntegrationTest {
         return new DriverManagerDataSource(url, postgres.getUsername(), postgres.getPassword());
     }
 
-    /** Flyway configured like the application (schema {@value #SCHEMA}) for the given locations. */
     protected static Flyway flyway(DataSource database, String... locations) {
         return Flyway.configure()
                 .dataSource(database)

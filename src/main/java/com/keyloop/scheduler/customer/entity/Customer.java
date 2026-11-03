@@ -9,7 +9,6 @@ import jakarta.persistence.Table;
 
 import lombok.Getter;
 
-/** A customer who books appointments; read-only for now (no customer endpoints yet). */
 @Getter
 @Entity
 @Table(name = "customer")

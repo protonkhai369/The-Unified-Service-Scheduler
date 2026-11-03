@@ -2,72 +2,50 @@ spring:
   application:
     name: service-scheduler
   config:
-    # Database credentials live in a git-ignored .env file (see .env.example), e.g. for Supabase.
     import: optional:file:.env[.properties]
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/scheduler}
     username: ${DB_USER:scheduler}
     password: ${DB_PASSWORD:scheduler}
     hikari:
-      # Supabase's session pooler caps client connections per project; stay well below it.
       maximum-pool-size: ${DB_POOL_SIZE:5}
       schema: ${DB_SCHEMA:scheduler}
   jpa:
     open-in-view: false
     hibernate:
-      # Flyway owns the schema; Hibernate only checks the entities match it.
       ddl-auto: validate
     properties:
       hibernate:
         default_schema: ${DB_SCHEMA:scheduler}
-        # No hibernate.jdbc.time_zone: Instant already maps to timestamptz without it, and with it set to
-        # UTC Hibernate reads `time` columns (opening hours) shifted by the JVM zone's 1970 offset.
   flyway:
-    # Everything lives in a dedicated schema, never "public": Supabase exposes "public" through its
-    # REST API (PostgREST) and grants the anonymous role access to new tables there. This backend
-    # only uses JDBC, so its tables stay out of the API entirely. Flyway creates the schema.
     default-schema: ${DB_SCHEMA:scheduler}
     schemas: ${DB_SCHEMA:scheduler}
-    # db/demo holds a repeatable migration that seeds demo reference data into an empty database.
-    # Tests override this to classpath:db/migration only (DatabaseIntegrationTest).
     locations: classpath:db/migration,classpath:db/demo
   web:
-    # Validation messages in English, whatever the caller's Accept-Language or the host's locale.
     locale: en
     locale-resolver: fixed
   security:
     oauth2:
       resourceserver:
         jwt:
-          # Supabase Auth access tokens, verified against the project's published signing keys: no
-          # Supabase secret here. The keys are fetched on the first token and cached. Without
-          # SUPABASE_URL (.env) the Supabase CLI's local address is used, so only public endpoints work.
           jwk-set-uri: ${SUPABASE_URL:http://127.0.0.1:54321}/auth/v1/.well-known/jwks.json
           issuer-uri: ${SUPABASE_URL:http://127.0.0.1:54321}/auth/v1
-          # Supabase signs with ES256; Spring would otherwise accept RS256 only.
           jws-algorithms: ES256
           audiences: authenticated
 
 logging:
   pattern:
-    # The request's X-Request-Id (RequestIdFilter) and, when authenticated, the caller's Supabase user id
-    # (UserIdLogFilter) in every console line: "[abc-123 5a1f...]", or "[abc-123]" without a caller.
     correlation: "[%X{requestId:-}%replace( %X{userId:-}){'^ $', ''}] "
 
 scheduler:
-  # Bookings for one dealership and local day queue on a database lock; a booking that waits longer
-  # than this answers 409 SLOT_CONTENTION.
   booking-lock-timeout: 3s
-  # Extra attempts only happen when something wrote an appointment without taking that lock.
   max-booking-attempts: 5
-  # Start times lie on this grid, counted from the dealership's opening time in its own time zone.
   slot-step: 30m
 
 management:
   metrics:
     distribution:
       percentiles-histogram:
-        # Buckets for http_server_requests_seconds, so latency percentiles can be computed in Prometheus.
         http.server.requests: true
   endpoints:
     web:
@@ -79,7 +57,6 @@ management:
         enabled: true
       group:
         readiness:
-          # Stop routing traffic to an instance that cannot reach its database.
           include: readinessState,db
 
 springdoc:

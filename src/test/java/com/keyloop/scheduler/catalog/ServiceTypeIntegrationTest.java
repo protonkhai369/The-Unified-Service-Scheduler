@@ -10,7 +10,6 @@ import org.springframework.core.ParameterizedTypeReference;
 
 import com.keyloop.scheduler.DatabaseIntegrationTest;
 
-/** Dealership-catalog spec, "List service types", over HTTP on fixture data. */
 class ServiceTypeIntegrationTest extends DatabaseIntegrationTest {
 
     private static final ParameterizedTypeReference<List<Long>> IDS = new ParameterizedTypeReference<>() {

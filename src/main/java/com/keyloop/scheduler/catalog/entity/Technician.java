@@ -9,7 +9,6 @@ import jakarta.persistence.Table;
 
 import lombok.Getter;
 
-/** A technician of one dealership; qualifications are {@link TechnicianSkill} rows. */
 @Getter
 @Entity
 @Table(name = "technician")
@@ -19,7 +18,6 @@ public class Technician {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** Referenced by id, not as an association (aggregates reference each other by id). */
     @Column(name = "dealership_id", nullable = false)
     private long dealershipId;
 

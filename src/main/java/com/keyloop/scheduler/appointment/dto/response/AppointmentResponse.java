@@ -8,10 +8,6 @@ import com.keyloop.scheduler.appointment.entity.Appointment;
 import com.keyloop.scheduler.appointment.entity.AppointmentStatus;
 import com.keyloop.scheduler.appointment.repository.AppointmentView;
 
-/**
- * An appointment as clients see it. {@code startTime} and {@code endTime} carry the dealership's
- * offset at that instant, and {@code timeZone} names the dealership's zone.
- */
 public record AppointmentResponse(UUID id, AppointmentStatus status, long dealershipId, long customerId,
         long vehicleId, long serviceTypeId, ResourceRef serviceBay, ResourceRef technician, OffsetDateTime startTime,
         OffsetDateTime endTime, String timeZone) {

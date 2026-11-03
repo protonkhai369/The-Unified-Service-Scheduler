@@ -37,12 +37,6 @@ import com.keyloop.scheduler.security.AuthenticatedUser;
 import com.keyloop.scheduler.web.error.ApiException;
 import com.keyloop.scheduler.web.error.ErrorCode;
 
-/**
- * Books appointments: permission check, replay check, validation, then allocation attempts, each in
- * its own transaction.
- * Deliberately not {@code @Transactional}: PostgreSQL aborts a transaction after a constraint
- * violation, so a retry is only possible in a new one.
- */
 @Service
 public class BookingService {
 
@@ -84,12 +78,6 @@ public class BookingService {
         this.clock = clock;
     }
 
-    /**
-     * @param idempotencyKey the client's key, or {@code null} to have one generated (such requests are
-     * never deduplicated)
-     * @param caller who books; see {@link AccessPolicy#mayBook}
-     * @throws ApiException for every rejection defined by the appointment-booking and access-control specs
-     */
     public BookingResult book(BookAppointmentRequest request, @Nullable String idempotencyKey,
             AuthenticatedUser caller) {
         try {
@@ -109,8 +97,6 @@ public class BookingService {
 
     private BookingResult bookCounted(BookAppointmentRequest request, @Nullable String idempotencyKey,
             AuthenticatedUser caller) {
-        // Before the replay: a customer can put any customerId in the body, so a replay first would let
-        // anyone who knows another customer's key and request read that customer's appointment.
         if (!AccessPolicy.mayBook(caller, request.dealershipId(), request.customerId())) {
             throw new ApiException(ErrorCode.FORBIDDEN);
         }
@@ -119,7 +105,6 @@ public class BookingService {
         String fingerprint = RequestFingerprint.of(request.dealershipId(), request.customerId(), request.vehicleId(),
                 request.serviceTypeId(), start);
 
-        // Before any rule: a retry whose original succeeded must get it back, even after its start time.
         Optional<AppointmentResponse> replay = this.replays.find(key, fingerprint);
         if (replay.isPresent()) {
             return replayed(replay.get());
@@ -141,7 +126,6 @@ public class BookingService {
                     return replayed(replayedOutcome.appointment());
                 }
                 case LostRace lostRace -> {
-                    // Should not happen while every writer takes the dealership-day lock; hence WARN.
                     this.metrics.lostRace();
                     log.warn("Booking attempt {} lost a race on {}; retrying on fresh data", attemptNumber,
                             lostRace.constraint());
@@ -156,7 +140,6 @@ public class BookingService {
         return new BookingResult(appointment, true);
     }
 
-    /** Unknown references first, then ownership, then the start-time rules (spec order). */
     private BookingContext validate(BookAppointmentRequest request, Instant start, String key, String fingerprint) {
         Dealership dealership = this.dealerships.findById(request.dealershipId())
                 .orElseThrow(() -> new ApiException(ErrorCode.DEALERSHIP_NOT_FOUND, request.dealershipId()));

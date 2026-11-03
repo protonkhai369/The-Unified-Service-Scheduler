@@ -30,12 +30,6 @@ import io.swagger.v3.oas.annotations.enums.SecuritySchemeType;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.security.SecurityScheme;
 
-/**
- * Service appointments, for callers with a Supabase access token. Not annotated with
- * {@code @Validated}: the header and body constraints are checked by Spring MVC's built-in method
- * validation, which the exception handler reports as {@code VALIDATION_FAILED}. The security
- * annotations give Swagger UI its "Authorize" button for these operations.
- */
 @SecurityScheme(name = "bearer", type = SecuritySchemeType.HTTP, scheme = "bearer", bearerFormat = "JWT",
         description = "A Supabase Auth access token")
 @SecurityRequirement(name = "bearer")
@@ -54,10 +48,6 @@ class AppointmentController {
         this.appointments = appointments;
     }
 
-    /**
-     * {@code 201} with the new appointment, or with the original one and {@code Idempotent-Replayed: true}.
-     * {@code @ResponseStatus} documents the 201 in OpenAPI; the returned entity sets the same status.
-     */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     ResponseEntity<AppointmentResponse> book(@Valid @RequestBody BookAppointmentRequest request,
@@ -77,7 +67,6 @@ class AppointmentController {
         return this.appointments.appointment(id, caller);
     }
 
-    /** Idempotent: cancelling a cancelled appointment returns it unchanged. */
     @PostMapping("/{id}/cancel")
     AppointmentResponse cancel(@PathVariable UUID id, @AuthenticationPrincipal AuthenticatedUser caller) {
         return this.appointments.cancel(id, caller);

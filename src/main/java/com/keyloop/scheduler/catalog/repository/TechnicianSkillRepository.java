@@ -10,7 +10,6 @@ import com.keyloop.scheduler.catalog.entity.TechnicianSkill;
 
 public interface TechnicianSkillRepository extends JpaRepository<TechnicianSkill, TechnicianSkill.Key> {
 
-    /** The active qualifications of the given technicians in one query, ordered by service type id. */
     @Query("""
             select s from TechnicianSkill s
             where s.id.technicianId in :technicianIds and s.active = true

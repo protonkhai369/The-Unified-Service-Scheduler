@@ -9,7 +9,6 @@ import jakarta.persistence.Table;
 
 import lombok.Getter;
 
-/** A kind of service with a fixed duration. */
 @Getter
 @Entity
 @Table(name = "service_type")

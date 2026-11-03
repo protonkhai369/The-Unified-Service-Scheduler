@@ -32,7 +32,8 @@ public class SecurityConfiguration {
                         // The error dispatch renders the 401/403/500 problems of the original request.
                         .dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD).permitAll()
                         // Every method, so an unsupported one still answers 405 rather than 401.
-                        .requestMatchers("/api/v1/service-types", "/api/v1/dealerships/**").permitAll()
+                        .requestMatchers("/api/v1/service-types", "/api/v1/dealerships", "/api/v1/dealerships/{id}")
+                        .permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/actuator/health/**").permitAll()
                         .requestMatchers("/actuator/**").hasRole(Role.ADMIN.name())

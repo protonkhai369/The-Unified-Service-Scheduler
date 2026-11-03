@@ -63,7 +63,6 @@ class AppointmentRepositoryIntegrationTest extends DatabaseIntegrationTest {
         long otherVehicle = fixtures.vehicle(customer);
         fixtures.appointment(saigon.appointment(customer, vehicle, 1, 1, saigonTime("2026-11-03T07:30"), saigonTime("2026-11-03T08:30")));
         fixtures.appointment(saigon.appointment(customer, otherVehicle, 2, 2, saigonTime("2026-11-03T16:30"), saigonTime("2026-11-03T17:30")));
-        // Excluded: the previous and next local day, a cancelled appointment, another dealership.
         fixtures.appointment(saigon.appointment(customer, vehicle, 1, 1, saigonTime("2026-11-02T16:30"), saigonTime("2026-11-02T17:30")));
         fixtures.appointment(saigon.appointment(customer, vehicle, 1, 1, saigonTime("2026-11-04T07:30"), saigonTime("2026-11-04T08:30")));
         fixtures.appointment(saigon.appointment(customer, vehicle, 1, 1, saigonTime("2026-11-03T10:00"), saigonTime("2026-11-03T11:00"))
@@ -90,7 +89,6 @@ class AppointmentRepositoryIntegrationTest extends DatabaseIntegrationTest {
         fixtures.appointment(london.appointment(customer, secondVehicle, 1, 1, OffsetDateTime.parse("2026-11-03T12:00Z"),
                 OffsetDateTime.parse("2026-11-03T13:00Z")).withStatus("CANCELLED"));
 
-        // 16:30 in Saigon is 09:30Z: the same instant as the London booking.
         assertThat(appointments.vehicleBooked(vehicle, saigonInstant("2026-11-03T16:30"), saigonInstant("2026-11-03T17:15")))
                 .isTrue();
         assertThat(appointments.vehicleBooked(vehicle, Instant.parse("2026-11-03T10:30:00Z"), Instant.parse("2026-11-03T11:30:00Z")))

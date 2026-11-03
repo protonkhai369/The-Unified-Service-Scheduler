@@ -19,10 +19,6 @@ import com.keyloop.scheduler.DatabaseIntegrationTest;
 import com.keyloop.scheduler.security.TestTokens;
 import com.keyloop.scheduler.web.ProbeConfiguration;
 
-/**
- * Error-responses spec, exercised through the test-only probe endpoints; the catalog endpoints
- * cover the scenarios that name real paths.
- */
 @ExtendWith(OutputCaptureExtension.class)
 class ErrorHandlingIntegrationTest extends DatabaseIntegrationTest {
 

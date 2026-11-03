@@ -3,15 +3,8 @@ package com.keyloop.scheduler.web.error;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 
-/**
- * Every error code of the API: the constant's name is the {@code code} member of the problem
- * response, so renaming a constant is a breaking API change. Each code is also defined in a spec
- * under {@code openspec/} ({@code ErrorCodeTest} checks this). Detail templates hold only values the
- * client sent, such as ids, never internal state.
- */
 public enum ErrorCode {
 
-    // Request and framework errors
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "Request validation failed."),
     NOT_FOUND(HttpStatus.NOT_FOUND, "No endpoint matches this path."),
     METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "This method is not supported for this path."),
@@ -19,19 +12,15 @@ public enum ErrorCode {
     REQUEST_REJECTED(HttpStatus.BAD_REQUEST, "The request was rejected."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred."),
 
-    // Access control
     UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "A valid bearer access token is required."),
     FORBIDDEN(HttpStatus.FORBIDDEN, "The caller is not allowed to perform this request."),
 
-    // Catalog
     DEALERSHIP_NOT_FOUND(HttpStatus.NOT_FOUND, "Dealership %d does not exist."),
     SERVICE_TYPE_NOT_FOUND(HttpStatus.NOT_FOUND, "Service type %d does not exist."),
 
-    // Customers
     CUSTOMER_NOT_FOUND(HttpStatus.NOT_FOUND, "Customer %d does not exist."),
     VEHICLE_NOT_FOUND(HttpStatus.NOT_FOUND, "Vehicle %d does not exist."),
 
-    // Appointments: 422 when the request breaks a rule, 409 when the current state of resources prevents it
     APPOINTMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "Appointment %s does not exist."),
     VEHICLE_NOT_OWNED_BY_CUSTOMER(HttpStatus.UNPROCESSABLE_CONTENT, "Vehicle %d does not belong to customer %d."),
     START_TIME_IN_PAST(HttpStatus.UNPROCESSABLE_CONTENT, "The start time must be in the future."),
@@ -64,10 +53,6 @@ public enum ErrorCode {
         return this.detailTemplate.formatted(args);
     }
 
-    /**
-     * The code for an error without a more specific one. With {@link #REQUEST_REJECTED} and
-     * {@link #INTERNAL_ERROR} the response keeps the given status, not the constant's default.
-     */
     public static ErrorCode forStatus(HttpStatusCode status) {
         return switch (status.value()) {
             case 401 -> UNAUTHENTICATED;

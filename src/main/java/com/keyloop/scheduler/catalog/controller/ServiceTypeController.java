@@ -8,7 +8,6 @@ import com.keyloop.scheduler.catalog.dto.response.ServiceTypeResponse;
 import com.keyloop.scheduler.catalog.service.ServiceTypeService;
 import com.keyloop.scheduler.web.dto.ItemsResponse;
 
-/** Read-only service types, so clients can discover the ids and durations a booking needs. */
 @RestController
 @RequestMapping("/api/v1/service-types")
 class ServiceTypeController {

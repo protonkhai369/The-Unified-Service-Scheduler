@@ -9,7 +9,6 @@ import org.springframework.transaction.annotation.Transactional;
 import com.keyloop.scheduler.catalog.dto.response.ServiceTypeResponse;
 import com.keyloop.scheduler.catalog.repository.ServiceTypeRepository;
 
-/** Read-only service types. Catalog rows change only through migrations and demo data. */
 @Service
 @Transactional(readOnly = true)
 public class ServiceTypeService {

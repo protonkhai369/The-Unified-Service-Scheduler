@@ -63,7 +63,6 @@ class ErrorCodeTest {
         });
     }
 
-    /** Every spec file, including those of active changes whose codes are not yet merged. */
     private static String specText() {
         try (Stream<Path> files = Files.walk(Path.of("openspec"))) {
             return files.filter(file -> file.getFileName().toString().equals("spec.md"))

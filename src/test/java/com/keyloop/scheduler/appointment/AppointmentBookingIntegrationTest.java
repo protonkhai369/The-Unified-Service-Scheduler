@@ -14,7 +14,6 @@ import org.junit.jupiter.api.Test;
 
 import com.keyloop.scheduler.DatabaseFixtures.Workshop;
 
-/** appointment-booking spec: booking, allocation, workload balancing, time zones, one vehicle at a time. */
 class AppointmentBookingIntegrationTest extends AppointmentApiTestSupport {
 
     private long emma;
@@ -308,7 +307,6 @@ class AppointmentBookingIntegrationTest extends AppointmentApiTestSupport {
         }
     }
 
-    /** A time on 3 November 2026 in London, where the offset is +00:00 in November. */
     private static OffsetDateTime at(String localTime) {
         return OffsetDateTime.parse("2026-11-03T" + localTime + ":00Z");
     }

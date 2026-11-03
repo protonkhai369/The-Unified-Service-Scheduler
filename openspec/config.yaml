@@ -6,17 +6,18 @@ context: |
   A backend REST service that replaces manual booking of dealership service appointments.
   Only the backend layer is implemented; clients are stubbed via OpenAPI/Swagger UI and cURL examples.
 
-  Current state (2026-11-02): application code was reset to a skeleton on 2026-10-30 (entry point,
+  Current state (2026-11-03): application code was reset to a skeleton on 2026-10-30 (entry point,
   configuration, Testcontainers base test). openspec/specs describes the TARGET behaviour; it is
   rebuilt through changes. The database schema (V1) and demo data exist since change
   add-scheduler-database. Change add-api-foundation added the error pipeline (ErrorCode enum,
   ApiException, GlobalExceptionHandler, /error controller), X-Request-Id and access log, and the
   read-only catalog endpoints with their JPA entities. Change add-appointment-booking added booking,
   reading and cancelling appointments, the scheduling domain (TimeRange, BusinessDay, StartTimeRule,
-  Allocator), idempotency and booking metrics. Change add-supabase-auth (2026-11-03) made the backend
-  an OAuth2 resource server for Supabase Auth access tokens, with roles customer, advisor and admin.
-  The availability search does not exist yet; the architecture below is otherwise the intended
-  design.
+  Allocator), idempotency and booking metrics. Change add-availability-search added the read-only
+  availability search, built on the same domain (StartTimeRule, FreeResources, SlotFinder) without
+  taking the booking lock. Every specified capability now exists; the architecture below is the
+  intended design.
+  Change add-supabase-auth provides Supabase token verification and customer, advisor and admin roles.
 
   Core requirements from the brief (acceptance criteria):
   1. Resource-constrained booking: request an appointment for a vehicle, service type and

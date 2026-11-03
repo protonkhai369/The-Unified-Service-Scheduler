@@ -12,7 +12,6 @@ import org.springframework.core.ParameterizedTypeReference;
 
 import com.keyloop.scheduler.DatabaseIntegrationTest;
 
-/** Dealership-catalog spec (dealerships and their resources) and api-conventions, over HTTP on fixture data. */
 class DealershipIntegrationTest extends DatabaseIntegrationTest {
 
     private static final ParameterizedTypeReference<List<Long>> IDS = new ParameterizedTypeReference<>() {

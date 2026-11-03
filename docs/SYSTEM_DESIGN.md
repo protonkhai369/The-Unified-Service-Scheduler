@@ -1,8 +1,7 @@
 # System Design
 
 Unified Service Scheduler, Keyloop technical assessment, Scenario A. This document grows with each
-OpenSpec change; the behaviour itself is specified in `openspec/specs/`. The availability search
-section arrives with the change that builds it.
+OpenSpec change; the behaviour itself is specified in `openspec/specs/`.
 
 ## Data model
 
@@ -111,7 +110,7 @@ later `V2__...` as an ignored lower version and fails validation.
 
 ## API
 
-Built by OpenSpec changes `add-api-foundation`, `add-appointment-booking` and `add-supabase-auth`.
+Built by OpenSpec changes `add-api-foundation`, `add-appointment-booking`, `add-availability-search` and `add-supabase-auth`.
 Swagger UI: `/swagger-ui.html`.
 
 | Endpoint | Token | Returns |
@@ -119,6 +118,7 @@ Swagger UI: `/swagger-ui.html`.
 | `GET /api/v1/service-types` | public | `{"items": [...]}` of `id`, `code`, `name`, `durationMinutes` |
 | `GET /api/v1/dealerships` | public | `{"items": [...]}` of `id`, `name`, `timeZone`, `opens`, `closes` (`HH:mm`, local) |
 | `GET /api/v1/dealerships/{id}` | public | the dealership plus `serviceBays` and `technicians` (with `qualifiedServiceTypeIds`) |
+| `GET /api/v1/dealerships/{id}/availability?serviceTypeId=&date=` | required (any role) | the bookable start times of one local day, with free bay and technician counts |
 | `POST /api/v1/appointments` | required | `201` + `Location`: the booked appointment; optional `Idempotency-Key` header |
 | `GET /api/v1/appointments/{id}` | required | the appointment in its current state |
 | `POST /api/v1/appointments/{id}/cancel` | required | `200`: the cancelled appointment (idempotent) |
@@ -139,6 +139,25 @@ An appointment carries `id`, `status`, the four request ids, `serviceBay` and `t
   "startTime": "2026-11-03T10:00:00+07:00",
   "endTime": "2026-11-03T10:45:00+07:00",
   "timeZone": "Asia/Ho_Chi_Minh"
+}
+```
+
+An availability slot has the same `startTime`/`endTime` form, so a client sends `startTime` straight
+to `POST /api/v1/appointments`. Slots are ordered by start time. Demo data, oil change at Saigon,
+after one 07:30 booking; the first three of 19 slots:
+
+```json
+{
+  "dealershipId": 2, "serviceTypeId": 1, "date": "2026-11-04",
+  "timeZone": "Asia/Ho_Chi_Minh", "durationMinutes": 45,
+  "slots": [
+    { "startTime": "2026-11-04T07:30:00+07:00", "endTime": "2026-11-04T08:15:00+07:00",
+      "availableBays": 1, "availableTechnicians": 1 },
+    { "startTime": "2026-11-04T08:00:00+07:00", "endTime": "2026-11-04T08:45:00+07:00",
+      "availableBays": 1, "availableTechnicians": 1 },
+    { "startTime": "2026-11-04T08:30:00+07:00", "endTime": "2026-11-04T09:15:00+07:00",
+      "availableBays": 2, "availableTechnicians": 2 }
+  ]
 }
 ```
 
@@ -209,7 +228,9 @@ fails when a constant is missing from the specs under `openspec/`.
 | `APPOINTMENT_ALREADY_STARTED` | 409 | cancelling at or after the start time |
 
 `422` means the request itself breaks a rule; `409` means the request is valid but the current state
-of resources prevents it. The availability search adds its codes with the change that builds it.
+of resources prevents it. The availability search adds no code: it answers `400 VALIDATION_FAILED`,
+`404 DEALERSHIP_NOT_FOUND`, `404 SERVICE_TYPE_NOT_FOUND`, or `200` with empty `slots` for a day on
+which nothing can start any more.
 
 ### Request id and logs
 
@@ -239,8 +260,8 @@ Built by OpenSpec change `add-appointment-booking` (Scenario A core requirements
 ```
 
 `scheduling` has no Spring or JPA dependency and is unit-tested on its own; the availability search
-will reuse it. Services translate its results (`StartTimeViolation`, an empty `Allocation`) into
-`ApiException`s.
+reuses it (see Availability). Services translate its results (`StartTimeViolation`, an empty
+`Allocation`) into `ApiException`s.
 
 ### Flow
 
@@ -350,6 +371,79 @@ checked before that statement (see Access control).
 - INFO `Appointment <id> confirmed: dealership, bay, technician, start/end, attempt`; INFO
   `Booking replayed`; INFO `Appointment <id> cancelled`; WARN `Booking attempt <n> lost a race on
   <constraint>`. Customers appear only as ids.
+
+## Availability
+
+Built by OpenSpec change `add-availability-search` (Scenario A core requirement 2, shown before
+booking). Without it, a client learns whether a time is free only by booking it and receiving
+`409 NO_AVAILABILITY`.
+
+### Flow
+
+```
+GET /api/v1/dealerships/{dealershipId}/availability?serviceTypeId=&date=
+ ├─ controller: @Positive ids, ISO date ─────────────────────────────────── 400 VALIDATION_FAILED
+ └─ AvailabilityService: read-only transaction, READ COMMITTED, no lock
+     ① dealership ───────────────────────────────────────────────────────── 404 DEALERSHIP_NOT_FOUND
+     ② service type ─────────────────────────────────────────────────────── 404 SERVICE_TYPE_NOT_FOUND
+     ③ the day's closing instant is not after now → 200, "slots": []     (nothing else is read)
+     ④ active bays, active qualified technicians, that day's confirmed appointments
+        (the same three reads as BookingAttempt)
+     ⑤ SlotFinder → 200
+```
+
+### The same rules as booking
+
+```
+scheduling/
+  FreeResources   bays and technicians with no commitment overlapping a range   used by both
+  Allocator       picks the lowest free bay and the lightest free technician    booking
+  SlotFinder      grid candidates, filtered by StartTimeRule, counted           availability
+                  with FreeResources
+```
+
+- Candidates are `opens + k × scheduler.slot-step` on the dealership's local clock, counted the way
+  `BusinessDay.isOnGrid` counts the grid. Each must pass `StartTimeRule.check`, the check booking
+  runs: after now (a start equal to now is not listed), inside opening hours, on the grid. A step is
+  never added to an instant, which would drift off the grid on a daylight saving day.
+- A start is listed when `FreeResources` leaves at least one bay and one technician free for the
+  whole service. `availableBays` and `availableTechnicians` are the sizes of those two lists, so
+  there is one definition of "free" for both endpoints.
+- In a daylight saving gap, `java.time` moves a nonexistent local time onto an existing one. Each
+  start is kept once. In a fall-back overlap, the second occurrence of a local time is not offered,
+  although booking would accept it. No dealership opens across a transition.
+- A listed slot is not reserved, and the search does not know the vehicle. A booking can still answer
+  `409 NO_AVAILABILITY` (taken meanwhile) or `409 VEHICLE_ALREADY_BOOKED`.
+
+### Concurrency
+
+- A search takes no advisory lock and sets no `lock_timeout`. A plain `SELECT` waits neither for
+  the dealership-day lock nor for an uncommitted row. A booking in progress is simply not visible
+  yet, so a search never answers `SLOT_CONTENTION` and never slows a booking down.
+- `READ COMMITTED` is enough. Every appointment comes from one statement, whose snapshot is one
+  committed state, and bays, technicians and qualifications change only through migrations.
+  `REPEATABLE READ` was considered and dropped.
+- Queuing behind bookings, even with a shared lock, would make searches time out under a burst,
+  exactly when customers need an answer. It would not remove the race between searching and booking
+  either. Booking re-checks everything under its lock, and the exclusion constraints remain the
+  guarantee.
+
+### Metrics and log events
+
+No new metric or log event. Searches are counted and timed by
+`http_server_requests_seconds{uri="/api/v1/dealerships/{dealershipId}/availability"}`, and each one
+writes an access-log line. `scheduler_bookings_total` counts bookings only.
+
+### How agreement with booking is tested
+
+- `SlotFinderTest` checks the slot rules in milliseconds. Its property test draws 400 seeded random
+  days (zones, grids, durations, resources, commitments on and off the grid, "now"). For every minute
+  of each day, a start must be listed exactly when booking's `StartTimeRule` and `Allocator` accept
+  it, with counts checked against an overlap count written in the test.
+- `AvailabilityBookingIntegrationTest` is a round trip over HTTP. Every listed start books (`201`),
+  every other grid start is refused (`409 NO_AVAILABILITY`), and exactly
+  `min(availableBays, availableTechnicians)` bookings fit at a slot. Because the two services call
+  the repositories separately, this test also catches them reading different data.
 
 ## Access control
 
@@ -489,3 +583,10 @@ Ambiguities in the brief, resolved as follows:
 - Catalog data (dealerships, bays, technician names, service types) is public.
 - Every actuator endpoint except health is for admins only. A separate management port for
   Prometheus scraping is the production follow-up.
+- The availability search's `date` is a calendar date at the dealership, not at the client. A past
+  date, or today once nothing can start, returns `200` with empty `slots`, not an error.
+- A listed slot is not reserved: another booking may take it first, or the vehicle may already have
+  an appointment then.
+- `availableBays` and `availableTechnicians` are counted independently; the number of bookings that
+  still fit at a start time is the smaller of the two.
+- There is no booking horizon: any future date can be searched, as any future time can be booked.

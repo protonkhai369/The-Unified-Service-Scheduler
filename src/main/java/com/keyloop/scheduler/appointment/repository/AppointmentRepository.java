@@ -13,11 +13,6 @@ import com.keyloop.scheduler.appointment.entity.Appointment;
 
 public interface AppointmentRepository extends JpaRepository<Appointment, UUID> {
 
-    /**
-     * The confirmed appointments of a dealership starting in {@code [from, to)}, typically one local
-     * day. An appointment never crosses local midnight, so these are all of that day's appointments.
-     * Served by {@code appointment_dealership_start_idx}.
-     */
     @Query("""
             select new com.keyloop.scheduler.appointment.repository.BookedSlot(
                 a.serviceBayId, a.technicianId, a.startAt, a.endAt)
@@ -27,10 +22,6 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
               and a.startAt >= :from and a.startAt < :to""")
     List<BookedSlot> findConfirmedStartingBetween(long dealershipId, Instant from, Instant to);
 
-    /**
-     * Whether the vehicle has a confirmed appointment overlapping {@code [start, end)} at any
-     * dealership. Native, so the GiST index of {@code appointment_no_vehicle_overlap} serves it.
-     */
     @Query(value = """
             SELECT EXISTS (
                 SELECT 1 FROM appointment
@@ -52,11 +43,6 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
               and d.id = a.dealershipId and b.id = a.serviceBayId and t.id = a.technicianId""")
     Optional<AppointmentView> findViewByIdempotencyKey(String idempotencyKey);
 
-    /**
-     * Cancels the appointment if it is confirmed and has not started at {@code now}; returns the number
-     * of rows changed (0 or 1). A concurrent cancellation waits for this row's lock and then re-checks
-     * the condition on the committed row, so exactly one of them changes it.
-     */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update Appointment a

@@ -25,10 +25,6 @@ import com.keyloop.scheduler.scheduling.TimeRange;
 import com.keyloop.scheduler.web.error.ApiException;
 import com.keyloop.scheduler.web.error.ErrorCode;
 
-/**
- * Classification of database failures, with PostgreSQL errors built by hand. Covers the outcomes that
- * the concurrency tests can only reach by chance, such as a deadlock between two dealerships.
- */
 class BookingFailuresTest {
 
     private static final BookingContext CONTEXT = new BookingContext(1, 2, 3, 4,
@@ -78,7 +74,6 @@ class BookingFailuresTest {
         assertThatThrownBy(() -> failures.classify(notPostgres, CONTEXT)).isSameAs(notPostgres);
     }
 
-    /** A translated exception wrapping PostgreSQL's error, as Spring and Hibernate produce it. */
     private static DataAccessException failure(String sqlState, String constraint) {
         String fields = "SERROR\0C" + sqlState + "\0Mtest failure\0" + (constraint != null ? "n" + constraint + "\0" : "");
         return new DataIntegrityViolationException("translated", new PSQLException(new ServerErrorMessage(fields)));
