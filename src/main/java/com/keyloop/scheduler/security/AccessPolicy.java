@@ -46,6 +46,15 @@ public final class AccessPolicy {
         };
     }
 
+    public static boolean mayFindCustomers(AuthenticatedUser user) {
+        return switch (user.role()) {
+            case ADMIN -> true;
+            case ADVISOR -> user.dealershipId() != null;
+            case CUSTOMER -> false;
+            case null -> false;
+        };
+    }
+
     private static boolean actsFor(AuthenticatedUser user, long dealershipId, long customerId) {
         return switch (user.role()) {
             case ADMIN -> true;

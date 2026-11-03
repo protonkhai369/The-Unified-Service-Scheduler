@@ -19,7 +19,8 @@ context: |
   intended design.
   Change add-supabase-auth provides Supabase token verification and customer, advisor and admin roles.
   Change add-self-service-queries added /api/v1/me, /me/vehicles, /me/appointments and a
-  dealership's day (/api/v1/dealerships/{id}/appointments?date=).
+  dealership's day (/api/v1/dealerships/{id}/appointments?date=). Change add-customer-search added
+  staff customer search (/api/v1/customers?q=) with unaccent + pg_trgm (migration V2).
 
   Core requirements from the brief (acceptance criteria):
   1. Resource-constrained booking: request an appointment for a vehicle, service type and
@@ -55,7 +56,9 @@ context: |
     scheduler.max-booking-attempts (5). Errors are classified by SQLSTATE and constraint name, never
     by message. "Now" comes only from the Clock bean (tests use MutableClock).
   - Schema conventions: every table in schema scheduler, never public (Supabase exposes public through
-    its Data API); extensions in schema extensions; schema changes only as new versioned migrations,
+    its Data API); extensions in schema extensions, schema-qualified in SQL because the application's
+    search_path is scheduler (accent-insensitive SQL uses the IMMUTABLE wrapper f_unaccent); schema
+    changes only as new versioned migrations,
     never edits to applied ones. Demo data only in db/demo/R__demo_data.sql, a repeatable migration
     that inserts only into an empty dealership table; tests load db/migration only.
   - Database and HTTP tests extend DatabaseIntegrationTest (shared context, container and embedded

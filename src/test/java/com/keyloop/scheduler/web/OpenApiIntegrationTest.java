@@ -89,6 +89,20 @@ class OpenApiIntegrationTest extends DatabaseIntegrationTest {
     }
 
     @Test
+    void documentsTheCustomerSearch() {
+        String operation = "$.paths['/api/v1/customers'].get";
+        http.get().uri("/v3/api-docs")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath(operation + ".security[0].bearer").isArray()
+                .jsonPath(operation + ".parameters[*].name")
+                .value((List<String> names) -> assertThat(names).containsExactly("q"))
+                .jsonPath(operation + ".parameters[0].in").isEqualTo("query")
+                .jsonPath(operation + ".parameters[0].required").isEqualTo(true);
+    }
+
+    @Test
     void servesSwaggerUi() {
         http.get().uri("/swagger-ui/index.html").exchange().expectStatus().isOk();
     }
