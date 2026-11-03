@@ -756,3 +756,63 @@ authorisation to be added.
   `openspec validate --all --strict` 9 passed.
 - With the fix: `./mvnw clean test` 283 passed, 0 failed (red first: 2 failures in the new
   assertions).
+
+## 2026-11-04 - add-self-service-queries (OpenSpec change)
+
+Four read-only endpoints that a client, the planned web client included, needs in order to book
+without already knowing ids: `/api/v1/me`, `/api/v1/me/vehicles`, `/api/v1/me/appointments` and a
+dealership's day (`/api/v1/dealerships/{id}/appointments?date=`). Driven through OpenSpec on branch
+`feat/self-service-queries`, created from `origin/main`: propose, human review, then `/opsx:apply`
+with tests first.
+
+### Decisions taken with the user
+
+- The user asked why the checks did not use `@PreAuthorize`/`@PostAuthorize`. The AI compared them
+  operation by operation, and the user chose a split:
+  - `@PreAuthorize` calls the pure `AccessPolicy` on the three list operations.
+  - Booking (metric and replay order), reading one appointment (`404`, not `403`) and cancelling
+    (checked before the update) keep their checks in the service.
+- The user asked for the earlier single `GET /api/v1/appointments?dealershipId=&date=`. The AI
+  proposed two endpoints by use case instead, each with its own audience and bound, and the user
+  approved the proposal.
+
+### Decisions taken by the AI
+
+- While writing the proposal, the AI checked the schema and corrected its own design. The index on
+  `(dealership_id, start_at)` is partial (`WHERE status = 'CONFIRMED'`). The day schedule therefore
+  lists confirmed appointments only, and needs no migration. The customer's list keeps both statuses
+  and uses `appointment_customer_idx`.
+- `@PreAuthorize` sits on `public` service methods, because the controllers are package-private and
+  a CGLIB proxy might not intercept them. Method security wraps the transaction, so a refused call
+  reads nothing.
+- `dealershipDay` takes no caller argument: `principal` in SpEL decides. The design's signature was
+  corrected.
+
+### Problems found during implementation
+
+- Method security needs a handler. `GlobalExceptionHandler`'s catch-all `Exception` handler would
+  have turned `AccessDeniedException` into `500`. A probe guarded by `@PreAuthorize("false")` proved
+  it: it answered `200` while method security was off (red), and `403 FORBIDDEN` with the request id
+  once `@EnableMethodSecurity` and a dedicated handler were added.
+- A first `test-compile` without `clean` reported no error for the new `AccessPolicy` calls, because
+  stale classes were left in `target/`. Rerun with `clean`, it failed as expected.
+- `case CUSTOMER, null ->` is not valid Java (`null` combines only with `default`). It was split into
+  two labels.
+- The OpenAPI assertions passed at once, because the annotations had been added with the
+  controllers. To show the test guards anything, `@SecurityRequirement` was removed from
+  `AccountController`, the test failed on `/api/v1/me`, and the annotation was restored.
+
+### Verification
+
+- Red runs before each implementation task:
+  - the policy tests did not compile;
+  - the denial probe answered `200`;
+  - account tests: 9 of 10 failed;
+  - list tests: 13 of 14 failed;
+  - repository tests did not compile.
+  The tests that passed early (requests without a token) pass because of the existing URL rule.
+- `./mvnw clean test`: `Tests run: 312, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS, with one
+  Tomcat start (283 before this change, 29 new).
+- All 24 scenarios of `caller-profile` and `appointment-lists` have a test with the scenario name as
+  `@DisplayName` (checked by a script). This includes the Auckland local-day case (UTC+13).
+- `openspec validate --all --strict`: 10 passed.

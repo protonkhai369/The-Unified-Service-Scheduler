@@ -100,11 +100,18 @@ public final class DatabaseFixtures {
     }
 
     public long vehicle(long customerId, String vin) {
+        return vehicle(customerId, vin, "Volkswagen", "Golf", 2020);
+    }
+
+    public long vehicle(long customerId, String vin, String make, String model, int modelYear) {
         return jdbc.sql("""
                 INSERT INTO vehicle (customer_id, vin, make, model, model_year)
-                VALUES (:customer, :vin, 'Volkswagen', 'Golf', 2020) RETURNING id""")
+                VALUES (:customer, :vin, :make, :model, :modelYear) RETURNING id""")
                 .param("customer", customerId)
                 .param("vin", vin)
+                .param("make", make)
+                .param("model", model)
+                .param("modelYear", modelYear)
                 .query(Long.class)
                 .single();
     }

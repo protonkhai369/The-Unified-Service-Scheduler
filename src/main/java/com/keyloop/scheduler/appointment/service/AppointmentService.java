@@ -1,10 +1,14 @@
 package com.keyloop.scheduler.appointment.service;
 
 import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.List;
 import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,6 +17,10 @@ import com.keyloop.scheduler.appointment.entity.Appointment;
 import com.keyloop.scheduler.appointment.entity.AppointmentStatus;
 import com.keyloop.scheduler.appointment.repository.AppointmentRepository;
 import com.keyloop.scheduler.appointment.repository.AppointmentView;
+import com.keyloop.scheduler.catalog.entity.Dealership;
+import com.keyloop.scheduler.catalog.repository.DealershipRepository;
+import com.keyloop.scheduler.scheduling.BusinessDay;
+import com.keyloop.scheduler.scheduling.TimeRange;
 import com.keyloop.scheduler.security.AccessPolicy;
 import com.keyloop.scheduler.security.AuthenticatedUser;
 import com.keyloop.scheduler.web.error.ApiException;
@@ -25,11 +33,32 @@ public class AppointmentService {
 
     private final AppointmentRepository appointments;
 
+    private final DealershipRepository dealerships;
+
     private final Clock clock;
 
-    AppointmentService(AppointmentRepository appointments, Clock clock) {
+    AppointmentService(AppointmentRepository appointments, DealershipRepository dealerships, Clock clock) {
         this.appointments = appointments;
+        this.dealerships = dealerships;
         this.clock = clock;
+    }
+
+    @PreAuthorize("T(com.keyloop.scheduler.security.AccessPolicy).isLinkedCustomer(principal)")
+    @Transactional(readOnly = true)
+    public List<AppointmentResponse> appointmentsOf(AuthenticatedUser caller) {
+        return this.appointments.findViewsOfCustomer(caller.customerId()).stream().map(AppointmentResponse::of).toList();
+    }
+
+    @PreAuthorize("T(com.keyloop.scheduler.security.AccessPolicy).mayViewSchedule(principal, #dealershipId)")
+    @Transactional(readOnly = true)
+    public List<AppointmentResponse> dealershipDay(long dealershipId, LocalDate date) {
+        Dealership dealership = this.dealerships.findById(dealershipId)
+                .orElseThrow(() -> new ApiException(ErrorCode.DEALERSHIP_NOT_FOUND, dealershipId));
+        TimeRange day = new BusinessDay(date, ZoneId.of(dealership.getTimeZone()), dealership.getOpens(),
+                dealership.getCloses()).wholeDay();
+        return this.appointments.findViewsStartingBetween(dealershipId, day.start(), day.end()).stream()
+                .map(AppointmentResponse::of)
+                .toList();
     }
 
     @Transactional(readOnly = true)

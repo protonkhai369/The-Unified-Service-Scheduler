@@ -21,7 +21,9 @@ Change `add-availability-search` added the read-only availability search
 reusing booking's rules (`StartTimeRule`, `FreeResources`) and never takes the booking lock. Every
 specified capability now exists.
 Change `add-supabase-auth` made the backend an OAuth2 resource server for Supabase Auth access tokens,
-with roles `customer`, `advisor` and `admin` from `app_metadata`.
+with roles `customer`, `advisor` and `admin` from `app_metadata`. Change `add-self-service-queries`
+added `/api/v1/me`, `/api/v1/me/vehicles`, `/api/v1/me/appointments` and a dealership's day
+(`/api/v1/dealerships/{id}/appointments?date=`).
 
 ## Commands
 
@@ -94,6 +96,11 @@ whole toolkit to another project with `scripts/install-agent-skills.sh`.
   (users can edit it). Rules that need the request body or the appointment live in the pure
   `security.AccessPolicy`, and services check them first: bookings before the idempotency replay,
   cancellations before the update. An appointment the caller may not see is `404`, not `403`.
+- Use `@PreAuthorize` (method security is on), calling `AccessPolicy` from SpEL, on a `public`
+  service method when the caller and the arguments alone decide (the `/me` lists, a dealership's
+  day). Check inside the service when the decision needs loaded data or must sit between business
+  steps (booking, reading or cancelling one appointment). `GlobalExceptionHandler` turns
+  `AccessDeniedException` into `403 FORBIDDEN`; without that handler its catch-all would answer `500`.
 - Tests never call Supabase Auth. `DatabaseIntegrationTest.tokens` (`TestTokens`) signs tokens that
   the application's real decoder accepts. The `AppointmentApiTestSupport` helpers call as admin; use
   `bookAs`, `getAs` and `cancelAs` for other roles.
