@@ -11,7 +11,6 @@ import jakarta.persistence.Table;
 
 import lombok.Getter;
 
-/** A dealership with one daily opening window, expressed in its own time zone. */
 @Getter
 @Entity
 @Table(name = "dealership")
@@ -24,7 +23,6 @@ public class Dealership {
     @Column(nullable = false)
     private String name;
 
-    /** IANA zone id, e.g. {@code Europe/London}. */
     @Column(name = "time_zone", nullable = false)
     private String timeZone;
 

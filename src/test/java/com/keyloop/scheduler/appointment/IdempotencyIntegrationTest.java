@@ -11,7 +11,6 @@ import org.junit.jupiter.api.Test;
 
 import com.keyloop.scheduler.DatabaseFixtures.Workshop;
 
-/** appointment-booking spec, "Idempotent booking retries" (the concurrent scenario is in the concurrency test). */
 @DisplayName("Idempotent booking retries")
 class IdempotencyIntegrationTest extends AppointmentApiTestSupport {
 

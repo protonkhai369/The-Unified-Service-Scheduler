@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 
 import com.keyloop.scheduler.DatabaseIntegrationTest;
 
-/** The generated OpenAPI document (Swagger UI's source) still works next to the exception handler. */
 class OpenApiIntegrationTest extends DatabaseIntegrationTest {
 
     @Test
@@ -39,6 +38,23 @@ class OpenApiIntegrationTest extends DatabaseIntegrationTest {
                 .jsonPath("$.paths['/api/v1/appointments'].post.parameters[?(@.name == 'Idempotency-Key')].required")
                 .value((List<Boolean> required) -> assertThat(required).containsExactly(false))
                 .jsonPath("$.paths['/api/v1/appointments'].post.responses['201']").exists();
+    }
+
+    @Test
+    void documentsTheAvailabilityEndpoint() {
+        String operation = "$.paths['/api/v1/dealerships/{dealershipId}/availability'].get";
+        http.get().uri("/v3/api-docs")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath(operation + ".parameters[?(@.name == 'serviceTypeId')].required")
+                .value((List<Boolean> required) -> assertThat(required).containsExactly(true))
+                .jsonPath(operation + ".parameters[?(@.name == 'date')].required")
+                .value((List<Boolean> required) -> assertThat(required).containsExactly(true))
+                .jsonPath(operation + ".parameters[?(@.name == 'date')].schema.format")
+                .value((List<String> format) -> assertThat(format).containsExactly("date"))
+                .jsonPath(operation + ".responses['200'].content['*/*'].schema['$ref']")
+                .isEqualTo("#/components/schemas/AvailabilityResponse");
     }
 
     @Test

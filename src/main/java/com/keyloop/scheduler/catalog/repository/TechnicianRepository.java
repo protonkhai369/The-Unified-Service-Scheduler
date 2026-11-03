@@ -11,7 +11,6 @@ public interface TechnicianRepository extends JpaRepository<Technician, Long> {
 
     List<Technician> findByDealershipIdOrderById(long dealershipId);
 
-    /** The technicians a booking of this service type may be allocated to: active, with an active skill. */
     @Query("""
             select t from Technician t, TechnicianSkill s
             where t.dealershipId = :dealershipId and t.active = true

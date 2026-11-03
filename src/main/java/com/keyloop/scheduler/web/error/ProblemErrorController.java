@@ -13,12 +13,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.swagger.v3.oas.annotations.Hidden;
 
-/**
- * Answers the servlet container's error dispatch (an exception thrown in a filter, a request the
- * container rejected) with the same problem format as {@link GlobalExceptionHandler}, replacing
- * Spring Boot's own error JSON. The exception message is never exposed. Hidden from the OpenAPI
- * document, like Boot's error controller it replaces: clients never call /error themselves.
- */
 @Hidden
 @RestController
 public class ProblemErrorController implements ErrorController {

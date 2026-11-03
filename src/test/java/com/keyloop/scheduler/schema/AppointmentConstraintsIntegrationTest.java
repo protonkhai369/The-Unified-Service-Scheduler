@@ -17,11 +17,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import com.keyloop.scheduler.DatabaseFixtures.NewAppointment;
 import com.keyloop.scheduler.DatabaseIntegrationTest;
 
-/**
- * Spec: scheduling-data-model, requirements "Appointment record", the three overlap requirements,
- * "Qualified technician from the same dealership" and "Idempotency key storage".
- * Every row is inserted with plain SQL, so the database alone has to enforce the rule.
- */
 class AppointmentConstraintsIntegrationTest extends DatabaseIntegrationTest {
 
     private long oilChange;
@@ -38,7 +33,6 @@ class AppointmentConstraintsIntegrationTest extends DatabaseIntegrationTest {
     private long duc;
     private long ducsFocus;
 
-    /** Emma's Golf on bay 1 with technician 1, 10:00-11:00 at +07:00. */
     private NewAppointment booking;
 
     @BeforeEach

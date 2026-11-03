@@ -1,6 +1,3 @@
--- Demo reference data for local and Supabase runs. Tests never load it (they use db/migration only).
--- A repeatable migration: Flyway runs it after the versioned ones and again whenever this file
--- changes, so it inserts only into an empty database and never duplicates rows.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM dealership) THEN
@@ -35,7 +32,7 @@ BEGIN
     FROM (VALUES
         ('Riverside Motors London', 'Alice Morgan',  true),
         ('Riverside Motors London', 'Ben Carter',    true),
-        ('Riverside Motors London', 'Chloe Evans',   false), -- inactive: never allocated
+        ('Riverside Motors London', 'Chloe Evans',   false),
         ('Saigon Auto Centre',      'Nguyen Van An', true),
         ('Saigon Auto Centre',      'Tran Thi Binh', true)
     ) AS t (dealership, name, active)
@@ -59,7 +56,6 @@ BEGIN
         ('Le Minh Duc', 'minh.duc@example.com',    NULL)
     ON CONFLICT (email) DO NOTHING;
 
-    -- Emma owns two vehicles, so two bookings at the same time can be demonstrated.
     INSERT INTO vehicle (customer_id, vin, make, model, model_year)
     SELECT c.id, v.vin, v.make, v.model, v.model_year
     FROM (VALUES

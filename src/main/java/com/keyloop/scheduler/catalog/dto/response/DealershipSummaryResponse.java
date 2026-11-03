@@ -5,7 +5,6 @@ import java.time.LocalTime;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.keyloop.scheduler.catalog.entity.Dealership;
 
-/** Opening hours are local times in {@code timeZone}, pinned to {@code HH:mm}. */
 public record DealershipSummaryResponse(long id, String name, String timeZone,
         @JsonFormat(pattern = "HH:mm") LocalTime opens, @JsonFormat(pattern = "HH:mm") LocalTime closes) {
 

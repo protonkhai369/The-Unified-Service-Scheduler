@@ -38,13 +38,6 @@ import com.keyloop.scheduler.web.error.Problems.InputError;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.exc.MismatchedInputException;
 
-/**
- * Turns every exception raised while Spring MVC handles a request into the API's problem format.
- * The base class already maps each Spring MVC exception to its status and headers (e.g. {@code Allow}
- * on a 405); all of them pass through {@link #handleExceptionInternal}, where the code, the request
- * id and the input errors are added. Failures outside Spring MVC are handled by
- * {@link ProblemErrorController}.
- */
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
@@ -85,11 +78,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 || ex instanceof ServletRequestBindingException || ex instanceof HttpMessageNotReadableException;
     }
 
-    /**
-     * Spring's own detail where it helps the client (e.g. "Method 'DELETE' is not supported."), but
-     * not for a 404, whose Spring detail ("No static resource ...") describes server internals, nor
-     * for server errors.
-     */
     private static String detail(Exception ex, ErrorCode code) {
         if (code != ErrorCode.NOT_FOUND && code != ErrorCode.INTERNAL_ERROR && ex instanceof ErrorResponse response
                 && StringUtils.hasText(response.getBody().getDetail())) {
@@ -109,8 +97,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             }
             case HandlerMethodValidationException invalid -> {
                 for (ParameterValidationResult result : invalid.getParameterValidationResults()) {
-                    // A @Valid body validated together with constrained parameters: name its fields, as
-                    // MethodArgumentNotValidException does when the body is the only thing validated.
                     if (result instanceof ParameterErrors body) {
                         body.getFieldErrors().forEach(error ->
                                 errors.add(new InputError(error.getField(), String.valueOf(error.getDefaultMessage()))));
@@ -130,7 +116,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             case MissingRequestHeaderException missing ->
                     errors.add(new InputError(missing.getHeaderName(), "is required"));
             case HttpMessageNotReadableException unreadable -> {
-                // Jackson names the field only when the JSON was well-formed but a value did not fit.
                 if (unreadable.getCause() instanceof MismatchedInputException mismatch && !mismatch.getPath().isEmpty()) {
                     errors.add(new InputError(jsonPath(mismatch.getPath()), mustBeOfType(mismatch.getTargetType())));
                 }
@@ -141,7 +126,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return errors;
     }
 
-    /** The name the client used: the annotation's name for parameters and headers, else the Java name. */
     private static String parameterName(MethodParameter parameter) {
         RequestHeader header = parameter.getParameterAnnotation(RequestHeader.class);
         RequestParam param = parameter.getParameterAnnotation(RequestParam.class);
@@ -156,7 +140,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return StringUtils.hasText(first) ? first : second;
     }
 
-    /** {@code items[0].dealershipId} for Jackson's path [items, 0, dealershipId]. */
     private static String jsonPath(List<JacksonException.Reference> path) {
         StringBuilder result = new StringBuilder();
         for (JacksonException.Reference reference : path) {

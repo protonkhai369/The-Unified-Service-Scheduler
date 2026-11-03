@@ -13,17 +13,11 @@ import jakarta.persistence.Version;
 
 import lombok.Getter;
 
-/**
- * A booked service appointment. Every V1 column is mapped except the generated {@code period}, which
- * only the exclusion constraints and native queries use. Other aggregates are referenced by id.
- * Status changes go through a conditional update in the repository, not through this entity.
- */
 @Getter
 @Entity
 @Table(name = "appointment")
 public class Appointment {
 
-    /** Assigned by the application, so the id is known before the insert. */
     @Id
     private UUID id;
 
@@ -67,7 +61,6 @@ public class Appointment {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    /** A wrapper type: {@code null} tells Spring Data the entity is new, so it is persisted, not merged. */
     @Version
     private Long version;
 
@@ -93,7 +86,6 @@ public class Appointment {
         this.updatedAt = now;
     }
 
-    /** A new confirmed appointment with a random id. */
     public static Appointment confirmed(long dealershipId, long customerId, long vehicleId, long serviceTypeId,
             long serviceBayId, long technicianId, Instant startAt, Instant endAt, String idempotencyKey,
             String requestFingerprint, Instant now) {

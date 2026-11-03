@@ -4,6 +4,7 @@ import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON;
 
 import java.time.LocalTime;
+import java.util.List;
 import java.util.Map;
 
 import org.jspecify.annotations.Nullable;
@@ -15,21 +16,20 @@ import org.springframework.test.web.servlet.client.RestTestClient.ResponseSpec;
 import com.keyloop.scheduler.DatabaseFixtures.Workshop;
 import com.keyloop.scheduler.DatabaseIntegrationTest;
 
-/** HTTP helpers shared by the appointment tests; same context as every other integration test. */
 public abstract class AppointmentApiTestSupport extends DatabaseIntegrationTest {
 
     protected static final String APPOINTMENTS = "/api/v1/appointments";
 
+    protected static final String AVAILABILITY = "/api/v1/dealerships/{dealershipId}/availability";
+
     protected static final ParameterizedTypeReference<Map<String, Object>> JSON_OBJECT = new ParameterizedTypeReference<>() {
     };
 
-    /** A London dealership (UTC+0 in November) open 08:00-18:00. */
     protected Workshop london(int durationMinutes, int bays, int technicians) {
         return fixtures.workshop("London", "Europe/London", LocalTime.of(8, 0), LocalTime.of(18, 0), durationMinutes,
                 bays, technicians);
     }
 
-    /** A Saigon dealership (UTC+7) open 07:30-17:30. */
     protected Workshop saigon(int durationMinutes, int bays, int technicians) {
         return fixtures.workshop("Saigon", "Asia/Ho_Chi_Minh", LocalTime.of(7, 30), LocalTime.of(17, 30),
                 durationMinutes, bays, technicians);
@@ -47,7 +47,6 @@ public abstract class AppointmentApiTestSupport extends DatabaseIntegrationTest 
         return request.body(body).exchange();
     }
 
-    /** Books and returns the confirmed appointment's JSON body. */
     protected Map<String, Object> booked(Map<String, Object> body) {
         return booked(body, null);
     }
@@ -65,7 +64,26 @@ public abstract class AppointmentApiTestSupport extends DatabaseIntegrationTest 
         return http.post().uri(APPOINTMENTS + "/{id}/cancel", id).exchange();
     }
 
-    /** Asserts a problem response with the given status and code, and returns its body for more checks. */
+    protected ResponseSpec availability(long dealershipId, long serviceTypeId, String date) {
+        return http.get().uri(AVAILABILITY + "?serviceTypeId={serviceTypeId}&date={date}", dealershipId, serviceTypeId,
+                date).exchange();
+    }
+
+    protected List<Map<String, Object>> slots(Workshop workshop, String date) {
+        return slots(workshop.dealershipId(), workshop.serviceTypeId(), date);
+    }
+
+    @SuppressWarnings("unchecked")
+    protected List<Map<String, Object>> slots(long dealershipId, long serviceTypeId, String date) {
+        Map<String, Object> body = availability(dealershipId, serviceTypeId, date).expectStatus().isOk()
+                .expectBody(JSON_OBJECT).returnResult().getResponseBody();
+        return (List<Map<String, Object>>) body.get("slots");
+    }
+
+    protected static List<String> startTimes(List<Map<String, Object>> slots) {
+        return slots.stream().map(slot -> (String) slot.get("startTime")).toList();
+    }
+
     protected static BodyContentSpec problem(ResponseSpec response, int status, String code) {
         return response.expectStatus().isEqualTo(status)
                 .expectHeader().contentType(APPLICATION_PROBLEM_JSON)

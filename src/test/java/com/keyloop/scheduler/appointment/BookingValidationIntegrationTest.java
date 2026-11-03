@@ -14,10 +14,6 @@ import org.junit.jupiter.api.Test;
 
 import com.keyloop.scheduler.DatabaseFixtures.Workshop;
 
-/**
- * appointment-booking spec, "Booking request validation", and the error-responses scenario
- * "Several invalid fields". Every rejected request must leave the appointment table empty.
- */
 @DisplayName("Booking request validation")
 class BookingValidationIntegrationTest extends AppointmentApiTestSupport {
 

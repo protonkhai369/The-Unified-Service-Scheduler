@@ -1,18 +1,4 @@
 #!/usr/bin/env bash
-# Installs this project's AI-agent toolkit into a target project, for every agent in use:
-#   - curated, reviewed skills from well-known MIT-licensed repositories, pinned to exact commits
-#   - OpenSpec (spec-driven development) skills and slash commands / workflows
-#
-# Usage:  scripts/install-agent-skills.sh [target-dir] [tools]
-#         target-dir  default: current directory
-#         tools       comma-separated: claude, codex, antigravity
-#                     default: every agent whose folder already exists (.claude, .codex, .agent),
-#                     or claude if none does
-# Needs:  bash, curl, and the OpenSpec CLI (npm install -g @fission-ai/openspec)
-#
-# Skills are fetched by commit SHA, never from a moving branch, so a re-run installs exactly the
-# content that was reviewed. To upgrade: bump a SHA, re-run, and review the diff before committing.
-# See docs/AGENT_SKILLS.md for why each skill was chosen.
 set -euo pipefail
 
 TARGET="${1:-.}"
@@ -46,7 +32,6 @@ WSHOBSON="wshobson/agents@0874a27b17a22e2b7c2e2bcd725768e0803cad06"
 STAGING=$(mktemp -d)
 trap 'rm -rf "$STAGING"' EXIT
 
-# fetch_skill <repo@sha> <path-in-repo> <skill-name> <file>...   (downloads into $STAGING once)
 fetch_skill() {
     local repo="${1%@*}" sha="${1#*@}" src="$2" name="$3"
     shift 3
@@ -59,7 +44,6 @@ fetch_skill() {
     echo "  fetched $name  ($repo@${sha:0:7})"
 }
 
-# deploy_skill <skill-name> <tool>...   (copies a staged skill into each tool's skills folder)
 deploy_skill() {
     local name="$1" tool dir
     shift
@@ -104,8 +88,6 @@ fetch_skill "$WSHOBSON" plugins/backend-development/skills/api-design-principles
     SKILL.md assets/api-design-checklist.md assets/rest-api-template.py references/details.md \
     references/graphql-schema-design.md references/rest-best-practices.md
 
-# superpowers is normally installed as a Claude Code plugin, where its skills are namespaced
-# "superpowers:<name>". Installed as project skills they are plain "<name>".
 sed -i.bak 's/`superpowers:test-driven-development`/`test-driven-development`/; s/`superpowers:verification-before-completion`/`verification-before-completion`/' \
     "$STAGING/systematic-debugging/SKILL.md"
 rm -f "$STAGING/systematic-debugging/SKILL.md.bak"
@@ -116,7 +98,6 @@ for skill in java-springboot spring-boot-testing java-testcontainers java-hibern
              verification-before-completion postgresql-table-design api-design-principles; do
     deploy_skill "$skill" "${TOOL_LIST[@]}"
 done
-# Claude Code ships a built-in /security-review; a project skill with the same name would shadow it.
 for tool in "${TOOL_LIST[@]}"; do
     [ "$tool" != claude ] && deploy_skill security-review "$tool"
 done
@@ -126,9 +107,6 @@ if ! command -v openspec >/dev/null 2>&1; then
     echo "  OpenSpec CLI not found: npm install -g @fission-ai/openspec, then re-run" >&2
     exit 1
 fi
-# Adds skills and commands for each tool; an existing openspec/config.yaml and specs are kept.
-# Note: for Codex, OpenSpec writes its /opsx-* prompts to the user-level $CODEX_HOME/prompts
-# (default ~/.codex/prompts), because Codex only reads custom prompts from there.
 openspec init --tools "$TOOLS" "$TARGET"
 
 echo "Done. Restart each agent (or the IDE) so new skills and OpenSpec commands are picked up."

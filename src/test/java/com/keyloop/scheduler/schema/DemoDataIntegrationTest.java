@@ -21,15 +21,10 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 import com.keyloop.scheduler.DatabaseIntegrationTest;
 
-/**
- * Spec: database-platform, requirement "Demo data kept apart from schema and tests". Drives Flyway
- * directly on scratch databases with the demo location the application uses.
- */
 class DemoDataIntegrationTest extends DatabaseIntegrationTest {
 
     private static final String SCHEMA_MIGRATIONS = "classpath:db/migration";
     private static final String DEMO_DATA = "classpath:db/demo";
-    /** Test-only location holding V2__probe.sql, a stand-in for the next real schema migration. */
     private static final String NEXT_MIGRATION = "classpath:db/probe";
 
     private static final Map<String, Long> DEMO_ROWS = demoRows();
@@ -62,7 +57,6 @@ class DemoDataIntegrationTest extends DatabaseIntegrationTest {
         assertThat(restart.migrationsExecuted).as("migrations run on restart").isZero();
         assertThat(rowCounts(client)).isEqualTo(DEMO_ROWS);
 
-        // Same script with one more line: a new checksum, so Flyway re-runs the repeatable migration.
         String changedScript = new ClassPathResource("db/demo/R__demo_data.sql").getContentAsString(StandardCharsets.UTF_8)
                 + "\n-- changed after the demo data was applied\n";
         Files.writeString(changedDemoLocation.resolve("R__demo_data.sql"), changedScript);

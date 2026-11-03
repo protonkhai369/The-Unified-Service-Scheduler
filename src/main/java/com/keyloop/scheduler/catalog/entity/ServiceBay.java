@@ -9,7 +9,6 @@ import jakarta.persistence.Table;
 
 import lombok.Getter;
 
-/** A service bay of one dealership; any active bay can host any service type. */
 @Getter
 @Entity
 @Table(name = "service_bay")
@@ -19,7 +18,6 @@ public class ServiceBay {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** Referenced by id, not as an association (aggregates reference each other by id). */
     @Column(name = "dealership_id", nullable = false)
     private long dealershipId;
 

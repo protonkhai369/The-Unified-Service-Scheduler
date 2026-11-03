@@ -9,7 +9,6 @@ import jakarta.persistence.Table;
 
 import lombok.Getter;
 
-/** A vehicle and its current owner; read-only for now (no vehicle endpoints yet). */
 @Getter
 @Entity
 @Table(name = "vehicle")
@@ -19,7 +18,6 @@ public class Vehicle {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** Referenced by id, not as an association (aggregates reference each other by id). */
     @Column(name = "customer_id", nullable = false)
     private long customerId;
 

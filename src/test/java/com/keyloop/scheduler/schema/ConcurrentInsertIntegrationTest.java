@@ -27,10 +27,6 @@ import com.keyloop.scheduler.DatabaseFixtures;
 import com.keyloop.scheduler.DatabaseFixtures.NewAppointment;
 import com.keyloop.scheduler.DatabaseIntegrationTest;
 
-/**
- * Two transactions on two connections insert at the same time. The second insert must wait for the
- * first transaction's outcome and is decided by it, at the default READ COMMITTED isolation level.
- */
 class ConcurrentInsertIntegrationTest extends DatabaseIntegrationTest {
 
     private final ExecutorService secondThread = Executors.newSingleThreadExecutor();
@@ -55,9 +51,7 @@ class ConcurrentInsertIntegrationTest extends DatabaseIntegrationTest {
         long focus = fixtures.vehicle(duc);
 
         first = NewAppointment.confirmed(dealership, emma, golf, oilChange, bay1, technician1, at("10:00"), at("11:00"));
-        // Shares only the bay with "first", so the bay constraint is the one that decides.
         overlappingOnSameBay = first.withTechnician(technician2).withVehicle(duc, focus).at(at("10:30"), at("11:30"));
-        // Shares nothing with "first" except, in the key test, the idempotency key.
         unrelated = first.withBay(bay2).withTechnician(technician2).withVehicle(duc, focus).at(at("14:00"), at("15:00"));
     }
 
@@ -132,7 +126,6 @@ class ConcurrentInsertIntegrationTest extends DatabaseIntegrationTest {
         return secondThread.submit(() -> insert(connection, appointment, idempotencyKey));
     }
 
-    /** Waits until the second connection's backend is waiting on a lock held by the first transaction. */
     private void awaitBlockedOnLock(Connection connection, Future<UUID> pendingInsert) throws SQLException {
         int backendPid = connection.unwrap(PGConnection.class).getBackendPID();
         await().atMost(Duration.ofSeconds(10)).until(() -> jdbc

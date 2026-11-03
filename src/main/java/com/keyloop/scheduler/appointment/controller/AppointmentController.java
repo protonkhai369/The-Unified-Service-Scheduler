@@ -24,11 +24,6 @@ import com.keyloop.scheduler.appointment.service.AppointmentService;
 import com.keyloop.scheduler.appointment.service.BookingResult;
 import com.keyloop.scheduler.appointment.service.BookingService;
 
-/**
- * Service appointments. Not annotated with {@code @Validated}: the header and body constraints are
- * checked by Spring MVC's built-in method validation, which the exception handler reports as
- * {@code VALIDATION_FAILED}.
- */
 @RestController
 @RequestMapping(AppointmentController.PATH)
 class AppointmentController {
@@ -44,10 +39,6 @@ class AppointmentController {
         this.appointments = appointments;
     }
 
-    /**
-     * {@code 201} with the new appointment, or with the original one and {@code Idempotent-Replayed: true}.
-     * {@code @ResponseStatus} documents the 201 in OpenAPI; the returned entity sets the same status.
-     */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     ResponseEntity<AppointmentResponse> book(@Valid @RequestBody BookAppointmentRequest request,
@@ -66,7 +57,6 @@ class AppointmentController {
         return this.appointments.appointment(id);
     }
 
-    /** Idempotent: cancelling a cancelled appointment returns it unchanged. */
     @PostMapping("/{id}/cancel")
     AppointmentResponse cancel(@PathVariable UUID id) {
         return this.appointments.cancel(id);

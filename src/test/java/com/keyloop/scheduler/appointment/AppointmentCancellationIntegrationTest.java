@@ -24,7 +24,6 @@ import org.springframework.test.web.servlet.client.EntityExchangeResult;
 
 import com.keyloop.scheduler.DatabaseFixtures.Workshop;
 
-/** appointment-booking spec, "Appointment cancellation". */
 @DisplayName("Appointment cancellation")
 @ExtendWith(OutputCaptureExtension.class)
 class AppointmentCancellationIntegrationTest extends AppointmentApiTestSupport {

@@ -38,11 +38,6 @@ import com.keyloop.scheduler.DatabaseFixtures;
 import com.keyloop.scheduler.DatabaseFixtures.Workshop;
 import com.keyloop.scheduler.appointment.AppointmentApiTestSupport;
 
-/**
- * appointment-booking spec, "No double booking under concurrent requests", the concurrent scenarios of
- * "Idempotent booking retries" and "One booking per vehicle at a time", and the two paths that only a
- * writer bypassing the per-dealership-day lock can trigger: a lost race and a lock timeout.
- */
 @ExtendWith(OutputCaptureExtension.class)
 class BookingConcurrencyIntegrationTest extends AppointmentApiTestSupport {
 
@@ -160,8 +155,6 @@ class BookingConcurrencyIntegrationTest extends AppointmentApiTestSupport {
         double conflictsBefore = conflicts();
 
         try (Connection writer = transaction()) {
-            // A writer that does not queue on the dealership-day lock takes bay 1 (with technician 2) but
-            // has not committed yet: the booking cannot see it, allocates bay 1 too and blocks on it.
             DatabaseFixtures.insertAppointment(client(writer),
                     workshop.appointment(duc, focus, 1, 2, at("10:00"), at("11:00")), "bypassing-writer");
 
@@ -198,6 +191,27 @@ class BookingConcurrencyIntegrationTest extends AppointmentApiTestSupport {
         assertThat(appointmentCount()).isZero();
     }
 
+    @Test
+    @DisplayName("Search during a booking in progress")
+    void searchDuringABookingInProgress() throws Exception {
+        Workshop workshop = london(60, 1, 1);
+        long golf = fixtures.vehicle(emma);
+        List<Map<String, Object>> before = slots(workshop, "2026-11-03");
+
+        try (Connection holder = transaction()) {
+            client(holder).sql("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
+                    .param("key", BookingAttempt.lockKey(workshop.dealershipId(), LocalDate.parse("2026-11-03")))
+                    .query((row, number) -> Boolean.TRUE)
+                    .single();
+            DatabaseFixtures.insertAppointment(client(holder),
+                    workshop.appointment(emma, golf, 1, 1, at("10:00"), at("11:00")), "in-progress");
+
+            Future<List<Map<String, Object>>> search = pool.submit(() -> slots(workshop, "2026-11-03"));
+            assertThat(search.get(1, TimeUnit.SECONDS)).as("the state before that booking").isEqualTo(before);
+            holder.rollback();
+        }
+    }
+
     private List<Reply> concurrently(List<Supplier<ResponseSpec>> requests) throws Exception {
         CountDownLatch start = new CountDownLatch(1);
         List<Future<Reply>> pending = new ArrayList<>();
@@ -216,7 +230,6 @@ class BookingConcurrencyIntegrationTest extends AppointmentApiTestSupport {
         return replies;
     }
 
-    /** Pairs of confirmed appointments that share a bay or a technician and overlap in time. */
     private long overlappingConfirmedPairs() {
         return jdbc.sql("""
                 SELECT count(*) FROM appointment a JOIN appointment b ON a.id < b.id

@@ -7,7 +7,6 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
-/** Bays 1-3 and technicians 11-13; the wanted range is 10:00-11:00. */
 class AllocatorTest {
 
     private static final TimeRange WANTED = range("10:00", "11:00");

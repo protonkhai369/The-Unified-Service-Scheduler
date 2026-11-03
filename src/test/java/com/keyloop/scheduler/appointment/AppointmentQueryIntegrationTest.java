@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
 
 import com.keyloop.scheduler.DatabaseFixtures.Workshop;
 
-/** appointment-booking spec, "Confirmed appointment record". */
 @DisplayName("Confirmed appointment record")
 class AppointmentQueryIntegrationTest extends AppointmentApiTestSupport {
 

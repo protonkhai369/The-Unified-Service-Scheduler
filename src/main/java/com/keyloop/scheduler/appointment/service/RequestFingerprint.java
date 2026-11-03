@@ -6,12 +6,6 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
 
-/**
- * The SHA-256 of a booking's parameters, stored with the appointment so that a repeated
- * {@code Idempotency-Key} can be checked against the original request. Built from normalised values,
- * not from the JSON, so offset notation, field order and whitespace do not matter. The {@code v1|}
- * prefix keeps a future change of the definition from silently matching old rows.
- */
 public final class RequestFingerprint {
 
     private RequestFingerprint() {

@@ -29,12 +29,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import com.keyloop.scheduler.MutableClock;
 
-/**
- * Test-only endpoints and a failing filter that trigger the failures no real endpoint can trigger
- * yet (bodies, query parameters, headers, unexpected exceptions, a failure outside Spring MVC), and
- * the controllable clock. Imported by {@code DatabaseIntegrationTest}, so every integration test keeps
- * sharing one context.
- */
 @TestConfiguration(proxyBeanMethods = false)
 public class ProbeConfiguration {
 
@@ -42,7 +36,6 @@ public class ProbeConfiguration {
 
     public static final String FILTER_FAILURE_PATH = PROBE_PATH + "/filter-failure";
 
-    /** Registered as a member class of this configuration. */
     @RestController
     @RequestMapping(PROBE_PATH)
     static class ProbeController {
@@ -81,7 +74,6 @@ public class ProbeConfiguration {
         }
     }
 
-    /** Replaces the application's clock, so tests can book fixed dates and move time forward. */
     @Bean
     @Primary
     MutableClock testClock() {

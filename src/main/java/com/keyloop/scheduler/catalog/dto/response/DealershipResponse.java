@@ -6,7 +6,6 @@ import java.util.List;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.keyloop.scheduler.catalog.entity.Dealership;
 
-/** The fields of {@link DealershipSummaryResponse} plus the dealership's bays and technicians. */
 public record DealershipResponse(long id, String name, String timeZone,
         @JsonFormat(pattern = "HH:mm") LocalTime opens, @JsonFormat(pattern = "HH:mm") LocalTime closes,
         List<ServiceBayResponse> serviceBays, List<TechnicianResponse> technicians) {

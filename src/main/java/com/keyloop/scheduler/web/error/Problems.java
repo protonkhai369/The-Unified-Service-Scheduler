@@ -14,30 +14,21 @@ import org.springframework.http.ProblemDetail;
 
 import com.keyloop.scheduler.web.filter.RequestIdFilter;
 
-/**
- * Builds the one problem format of the API (error-responses spec) and logs it, for both the
- * exception handler and the error endpoint.
- */
 final class Problems {
 
     private static final Logger log = LoggerFactory.getLogger(Problems.class);
 
     private static final URI BLANK_TYPE = URI.create("about:blank");
 
-    /** One entry of {@code errors}: an invalid body field, query parameter, path variable or header. */
     record InputError(String field, String message) {
     }
 
     private Problems() {
     }
 
-    /**
-     * @param errors {@code null} for codes without an {@code errors} member
-     */
     static ProblemDetail create(HttpStatusCode status, ErrorCode code, String detail,
             @Nullable List<InputError> errors, HttpServletRequest request, String path) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
-        // Spring Framework 7 leaves type null, which omits it from the JSON; the spec wants it present.
         problem.setType(BLANK_TYPE);
         HttpStatus known = HttpStatus.resolve(status.value());
         problem.setTitle(known != null ? known.getReasonPhrase() : null);
@@ -50,7 +41,6 @@ final class Problems {
         return problem;
     }
 
-    /** Client errors without a stack trace; server errors with the exception that caused them. */
     static void log(ProblemDetail problem, @Nullable Throwable cause) {
         if (problem.getStatus() >= 500) {
             log.error("{} {}: {}", problem.getStatus(), problem.getProperties().get("code"), problem.getDetail(), cause);
