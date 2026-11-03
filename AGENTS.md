@@ -23,7 +23,9 @@ specified capability now exists.
 Change `add-supabase-auth` made the backend an OAuth2 resource server for Supabase Auth access tokens,
 with roles `customer`, `advisor` and `admin` from `app_metadata`. Change `add-self-service-queries`
 added `/api/v1/me`, `/api/v1/me/vehicles`, `/api/v1/me/appointments` and a dealership's day
-(`/api/v1/dealerships/{id}/appointments?date=`).
+(`/api/v1/dealerships/{id}/appointments?date=`). Change `add-customer-search` added staff search of
+customers by name or email (`/api/v1/customers?q=`), accent- and typo-tolerant with `unaccent` and
+`pg_trgm` (migration `V2`).
 
 ## Commands
 
@@ -126,6 +128,12 @@ whole toolkit to another project with `scripts/install-agent-skills.sh`.
 - Every table lives in schema `scheduler`, never `public`: Supabase exposes `public` to anonymous
   callers through its Data API. Extensions go in schema `extensions`. V1 already revokes the
   `anon`/`authenticated` roles' default privileges, so new tables need no extra grants or RLS.
+  The application's `search_path` is `scheduler` only, so SQL that uses an extension names it:
+  `extensions.similarity(...)`, `OPERATOR(extensions.%)`, `extensions.gin_trgm_ops`. Accent-insensitive
+  comparisons use the `IMMUTABLE` wrapper `f_unaccent`, never `unaccent()` directly, so an index can
+  serve them.
+- `src/test/resources/db/probe/V<n>__probe.sql` always stands for "the next schema migration": when a
+  real `V<n>` is added, renumber the probe and `DemoDataIntegrationTest`'s expected version.
 - Demo data lives only in `src/main/resources/db/demo/R__demo_data.sql`, a repeatable migration that
   inserts only when `dealership` is empty. Never put demo rows in `db/migration` or in a versioned
   migration. The application loads both locations; tests load `db/migration` only.

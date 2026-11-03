@@ -64,6 +64,10 @@ public final class TestTokens {
         return sign(claims(appMetadata(null, null, null)));
     }
 
+    public String advisorWithoutDealershipId() {
+        return sign(claims(appMetadata("advisor", null, null)));
+    }
+
     public String customerWithoutCustomerId() {
         return sign(claims(appMetadata("customer", null, null)));
     }

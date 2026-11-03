@@ -37,7 +37,8 @@ class DemoDataIntegrationTest extends DatabaseIntegrationTest {
 
         MigrateResult result = flyway(database, SCHEMA_MIGRATIONS, DEMO_DATA).migrate();
 
-        assertThat(result.migrations).extracting(m -> m.description).containsExactly("scheduler schema", "demo data");
+        assertThat(result.migrations).extracting(m -> m.description)
+                .containsExactly("scheduler schema", "customer search", "demo data");
         assertThat(rowCounts(client)).isEqualTo(DEMO_ROWS);
         assertThat(client.sql("SELECT time_zone FROM scheduler.dealership ORDER BY time_zone").query(String.class).list())
                 .containsExactly("Asia/Ho_Chi_Minh", "Europe/London");
@@ -70,14 +71,14 @@ class DemoDataIntegrationTest extends DatabaseIntegrationTest {
     @Test
     @DisplayName("A versioned migration added after the demo data still applies")
     void laterVersionedMigrationStillApplies() {
-        DataSource database = scratchDatabase("demo_then_v2");
+        DataSource database = scratchDatabase("demo_then_next");
         MigrateResult first = flyway(database, SCHEMA_MIGRATIONS, DEMO_DATA).migrate();
         assertThat(first.migrations).extracting(m -> m.description).contains("demo data");
 
         MigrateResult next = flyway(database, SCHEMA_MIGRATIONS, DEMO_DATA, NEXT_MIGRATION).migrate();
 
         assertThat(next.success).isTrue();
-        assertThat(next.migrations).extracting(m -> m.version).containsExactly("2");
+        assertThat(next.migrations).extracting(m -> m.version).containsExactly("3");
         assertThatNoException().isThrownBy(() -> flyway(database, SCHEMA_MIGRATIONS, DEMO_DATA, NEXT_MIGRATION).validate());
     }
 

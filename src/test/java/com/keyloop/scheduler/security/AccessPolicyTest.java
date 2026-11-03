@@ -78,6 +78,15 @@ class AccessPolicyTest {
         assertThat(AccessPolicy.mayViewSchedule(user(null, 2L, 2L), 2)).isFalse();
     }
 
+    @Test
+    void customerSearchIsForAdminsAndAdvisorsWithADealership() {
+        assertThat(AccessPolicy.mayFindCustomers(ADMIN)).isTrue();
+        assertThat(AccessPolicy.mayFindCustomers(ADVISOR_AT_2)).isTrue();
+        assertThat(AccessPolicy.mayFindCustomers(user(Role.ADVISOR, 2L, null))).isFalse();
+        assertThat(AccessPolicy.mayFindCustomers(CUSTOMER_2)).isFalse();
+        assertThat(AccessPolicy.mayFindCustomers(user(null, 2L, 2L))).isFalse();
+    }
+
     private static void assertNothingAllowed(AuthenticatedUser user) {
         assertThat(AccessPolicy.mayUseAppointments(user)).isFalse();
         assertThat(AccessPolicy.mayBook(user, 2, 2)).isFalse();

@@ -64,13 +64,55 @@ class SchemaPlatformIntegrationTest extends DatabaseIntegrationTest {
     }
 
     @Test
+    @DisplayName("unaccent and pg_trgm are installed in schema extensions")
+    void searchExtensionsInstalledInExtensionsSchema() {
+        List<String> extensions = jdbc.sql("""
+                SELECT extname || '@' || extnamespace::regnamespace::text FROM pg_catalog.pg_extension
+                WHERE extname IN ('unaccent', 'pg_trgm') ORDER BY extname""")
+                .query(String.class)
+                .list();
+
+        assertThat(extensions).containsExactly("pg_trgm@extensions", "unaccent@extensions");
+    }
+
+    @Test
+    @DisplayName("f_unaccent is immutable and removes Vietnamese accents, composed or decomposed")
+    void unaccentWrapperIsImmutableAndHandlesVietnamese() {
+        String volatility = jdbc.sql("""
+                SELECT provolatile FROM pg_catalog.pg_proc
+                WHERE proname = 'f_unaccent' AND pronamespace = 'scheduler'::regnamespace""")
+                .query(String.class)
+                .single();
+
+        assertThat(volatility).isEqualTo("i");
+        assertThat(jdbc.sql("SELECT scheduler.f_unaccent('Lê Minh Đức')").query(String.class).single())
+                .isEqualTo("Le Minh Duc");
+        assertThat(jdbc.sql("SELECT scheduler.f_unaccent(normalize('Lê Minh Đức', NFD))").query(String.class).single())
+                .isEqualTo("Le Minh Duc");
+    }
+
+    @Test
+    @DisplayName("Customer name and email have trigram indexes on their normalised form")
+    void customerSearchIndexesExist() {
+        List<String> definitions = jdbc.sql("""
+                SELECT indexdef FROM pg_catalog.pg_indexes
+                WHERE schemaname = 'scheduler' AND indexname IN ('customer_name_search_idx', 'customer_email_search_idx')
+                ORDER BY indexname""")
+                .query(String.class)
+                .list();
+
+        assertThat(definitions).hasSize(2).allSatisfy(definition -> assertThat(definition)
+                .contains("USING gin").contains("f_unaccent(lower(").contains("gin_trgm_ops"));
+    }
+
+    @Test
     @DisplayName("Tests run on the schema migrations only: no demo data migration is applied")
     void testDatabaseHasNoDemoData() {
         List<String> applied = jdbc.sql("SELECT script FROM flyway_schema_history WHERE type <> 'SCHEMA' ORDER BY installed_rank")
                 .query(String.class)
                 .list();
 
-        assertThat(applied).containsExactly("V1__scheduler_schema.sql");
+        assertThat(applied).containsExactly("V1__scheduler_schema.sql", "V2__customer_search.sql");
     }
 
     @Test

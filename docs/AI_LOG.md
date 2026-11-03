@@ -816,3 +816,69 @@ with tests first.
 - All 24 scenarios of `caller-profile` and `appointment-lists` have a test with the scenario name as
   `@DisplayName` (checked by a script). This includes the Auckland local-day case (UTC+13).
 - `openspec validate --all --strict`: 10 passed.
+
+## 2026-11-04 - add-customer-search (OpenSpec change)
+
+Staff search of customers by name or email, accent-, case- and typo-tolerant, so an advisor can find
+a customer and their vehicles to book on their behalf. Explored first in `/opsx:explore`:
+- The user asked whether the code searched case- and accent-insensitively, or by three-letter groups
+  (trigrams). It did not search at all.
+- The user then asked for customer and service search at three levels.
+- The AI mapped the cost and value of each piece, and the user accepted a cut line: customer search
+  on the server; service search only filtered in the web client; keyword and semantic service search
+  documented as future work.
+
+### Decisions taken with the user
+
+- Scope stops at name and email. Phone, VIN and plate search, per-dealership visibility and ranking
+  tuning are non-goals.
+- Service search is not on the server. The semantic-search idea, with an evaluation set, is written
+  in `SYSTEM_DESIGN.md` as future work.
+- A new branch, `feat/customer-search`, created from `main` after PR #8 (`add-self-service-queries`)
+  was merged, because the change reuses its method security.
+
+### Measured before writing the spec
+
+- On `postgres:17-alpine`, the test image, the AI checked that `unaccent` and `pg_trgm` are
+  available. `unaccent.rules` maps `Đ→D`, `đ→d`, `ế→e` and `ữ→u`, and `unaccent` also strips NFD
+  input. That made the "Unicode NFC" trap raised during exploration moot; a test now locks the
+  behaviour.
+- It measured the trigram similarities quoted in `SYSTEM_DESIGN.md`. One scenario drafted from
+  intuition ("Mihn Tuan" resembles "minh") scored 0.15 and would never match. The AI replaced it with
+  a measured pair (`le minh duc` versus "Lee Minh Duk") before the user reviewed the change.
+- A spike ran the planned migration and query with `search_path = scheduler`. `EXPLAIN` showed a
+  `BitmapOr` over both GIN indexes, and every scenario returned the expected order.
+
+### Decisions taken by the AI
+
+- An `IMMUTABLE` wrapper `f_unaccent` around the two-argument `unaccent`, because `unaccent()` is
+  `STABLE` and cannot be used in an index. Extension objects are schema-qualified, because the
+  connection pool sets `search_path` to `scheduler`.
+- Normalisation happens only in SQL, with the same function as the index. `LIKE` wildcards are
+  escaped in Java. The escaping lives in a `default` repository method, which differs from the
+  design's "service" wording; the design was corrected.
+- Vehicles are returned with each customer, so the desk needs one request. This takes two queries in
+  total and has no N+1.
+
+### Problems found during implementation
+
+- The test-only probe `db/probe/V2__probe.sql` would have clashed with the real `V2`. It became
+  `V3`, as task 1.1 planned. A rule in `AGENTS.md` now keeps the probe one version ahead.
+- Two existing assertions listed the applied migrations exactly, one in `SchemaPlatformIntegrationTest`
+  and one in `DemoDataIntegrationTest`. Both were updated to include "customer search".
+- Writing `VehicleRepository` failed once, because the file had only been read through the shell.
+  It was re-read and edited.
+
+### Verification
+
+- Red runs before each implementation task:
+  - 4 schema tests failed before `V2`;
+  - the policy test did not compile;
+  - the repository test did not compile;
+  - 16 of 17 HTTP tests failed (the one without a token passes through the URL rule).
+- Every search test passed at its first green run (7 repository tests, 17 HTTP tests), and the log
+  privacy test confirmed that no line of the request contains the name or its URL encoding.
+- To prove the OpenAPI assertion guards something, `@SecurityRequirement` was removed from
+  `CustomerController`: the test failed, and the annotation was restored.
+- `./mvnw clean test`: `Tests run: 341, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS, with one
+  Tomcat start (312 before this change, 29 new).

@@ -4,16 +4,15 @@
 Give API clients one predictable error format so they can branch on a stable machine-readable
 code instead of parsing messages, and give operators a request id that links an error response
 to the server log lines that explain it.
-
 ## Requirements
-
 ### Requirement: Problem details for every error
 Every error response, whether raised by an endpoint, by request routing or parsing, by a filter or
 by the servlet container, SHALL use RFC 9457 `application/problem+json` with `type` `about:blank`,
 `title` set to the reason phrase of the HTTP status, `status`, `detail`, `instance` set to the
 request path, a stable upper-snake-case `code`, and the `requestId` of the request. The `requestId`
 MUST equal the `X-Request-Id` header of the same response. Clients MUST be able to rely on `code`
-alone; `title` and `detail` are human-readable and may change.
+alone; `title` and `detail` are human-readable and may change. This includes the `401` and `403`
+responses of the access-control capability.
 
 #### Scenario: Business error
 - **WHEN** a booking is rejected because no resources are free
@@ -25,8 +24,12 @@ alone; `title` and `detail` are human-readable and may change.
 - **AND** the body has `type` `about:blank`, `title` `Not Found`, `status` 404, `instance` `/api/v1/dealerships/999`, `code` `DEALERSHIP_NOT_FOUND`, a non-empty `detail` and a `requestId`
 
 #### Scenario: Framework error
-- **WHEN** a client calls an unknown path
+- **WHEN** an authenticated client calls an unknown path
 - **THEN** the body is problem+json with `status` 404 and `code` `NOT_FOUND`
+
+#### Scenario: Authentication error
+- **WHEN** a request without a token calls an endpoint that requires one
+- **THEN** the body is problem+json with `status` 401, `code` `UNAUTHENTICATED` and a `requestId` equal to its `X-Request-Id` header
 
 #### Scenario: Request id in the body matches the header
 - **WHEN** a request carrying `X-Request-Id: abc-123` fails
@@ -90,3 +93,4 @@ its status and use `REQUEST_REJECTED`; any other `5xx` MUST keep its status and 
 #### Scenario: Other client error
 - **WHEN** a request is rejected with a `4xx` status that has no specific code
 - **THEN** the response keeps that status and uses code `REQUEST_REJECTED`
+

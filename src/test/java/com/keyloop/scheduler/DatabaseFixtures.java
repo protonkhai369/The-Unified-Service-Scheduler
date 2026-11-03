@@ -88,9 +88,13 @@ public final class DatabaseFixtures {
     }
 
     public long customer(String name) {
+        return customer(name, "customer" + nextSequence() + "@example.com");
+    }
+
+    public long customer(String name, String email) {
         return jdbc.sql("INSERT INTO customer (name, email) VALUES (:name, :email) RETURNING id")
                 .param("name", name)
-                .param("email", "customer" + nextSequence() + "@example.com")
+                .param("email", email)
                 .query(Long.class)
                 .single();
     }
