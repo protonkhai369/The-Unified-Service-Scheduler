@@ -19,13 +19,16 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.web.servlet.client.RestTestClient;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import com.keyloop.scheduler.security.TestSecurityConfiguration;
+import com.keyloop.scheduler.security.TestTokens;
 import com.keyloop.scheduler.web.ProbeConfiguration;
 
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT,
-        properties = { "spring.flyway.locations=classpath:db/migration", "scheduler.booking-lock-timeout=2s" })
+        properties = { "spring.flyway.locations=classpath:db/migration", "scheduler.booking-lock-timeout=2s",
+                "SUPABASE_URL=" + TestSecurityConfiguration.SUPABASE_URL })
 @AutoConfigureRestTestClient
 @AutoConfigureMetrics
-@Import({ TestcontainersConfiguration.class, ProbeConfiguration.class })
+@Import({ TestcontainersConfiguration.class, TestSecurityConfiguration.class, ProbeConfiguration.class })
 public abstract class DatabaseIntegrationTest {
 
     protected static final String SCHEMA = "scheduler";
@@ -47,6 +50,9 @@ public abstract class DatabaseIntegrationTest {
 
     @Autowired
     protected RestTestClient http;
+
+    @Autowired
+    protected TestTokens tokens;
 
     protected DatabaseFixtures fixtures;
 

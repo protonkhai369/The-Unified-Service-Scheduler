@@ -32,6 +32,8 @@ import com.keyloop.scheduler.scheduling.BusinessDay;
 import com.keyloop.scheduler.scheduling.StartTimeRule;
 import com.keyloop.scheduler.scheduling.StartTimeViolation;
 import com.keyloop.scheduler.scheduling.TimeRange;
+import com.keyloop.scheduler.security.AccessPolicy;
+import com.keyloop.scheduler.security.AuthenticatedUser;
 import com.keyloop.scheduler.web.error.ApiException;
 import com.keyloop.scheduler.web.error.ErrorCode;
 
@@ -76,9 +78,10 @@ public class BookingService {
         this.clock = clock;
     }
 
-    public BookingResult book(BookAppointmentRequest request, @Nullable String idempotencyKey) {
+    public BookingResult book(BookAppointmentRequest request, @Nullable String idempotencyKey,
+            AuthenticatedUser caller) {
         try {
-            BookingResult result = bookCounted(request, idempotencyKey);
+            BookingResult result = bookCounted(request, idempotencyKey, caller);
             this.metrics.booked(result);
             return result;
         }
@@ -92,7 +95,11 @@ public class BookingService {
         }
     }
 
-    private BookingResult bookCounted(BookAppointmentRequest request, @Nullable String idempotencyKey) {
+    private BookingResult bookCounted(BookAppointmentRequest request, @Nullable String idempotencyKey,
+            AuthenticatedUser caller) {
+        if (!AccessPolicy.mayBook(caller, request.dealershipId(), request.customerId())) {
+            throw new ApiException(ErrorCode.FORBIDDEN);
+        }
         String key = idempotencyKey != null ? idempotencyKey : UUID.randomUUID().toString();
         Instant start = request.startTime().toInstant();
         String fingerprint = RequestFingerprint.of(request.dealershipId(), request.customerId(), request.vehicleId(),

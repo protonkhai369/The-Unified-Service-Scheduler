@@ -40,7 +40,16 @@ public abstract class AppointmentApiTestSupport extends DatabaseIntegrationTest 
     }
 
     protected ResponseSpec book(Map<String, Object> body, @Nullable String idempotencyKey) {
-        RequestBodySpec request = http.post().uri(APPOINTMENTS).contentType(APPLICATION_JSON);
+        return bookAs(tokens.admin(), body, idempotencyKey);
+    }
+
+    protected ResponseSpec bookAs(String token, Map<String, Object> body) {
+        return bookAs(token, body, null);
+    }
+
+    protected ResponseSpec bookAs(String token, Map<String, Object> body, @Nullable String idempotencyKey) {
+        RequestBodySpec request = http.post().uri(APPOINTMENTS).contentType(APPLICATION_JSON)
+                .headers(headers -> headers.setBearerAuth(token));
         if (idempotencyKey != null) {
             request = request.header("Idempotency-Key", idempotencyKey);
         }
@@ -57,11 +66,20 @@ public abstract class AppointmentApiTestSupport extends DatabaseIntegrationTest 
     }
 
     protected ResponseSpec get(Object id) {
-        return http.get().uri(APPOINTMENTS + "/{id}", id).exchange();
+        return getAs(tokens.admin(), id);
+    }
+
+    protected ResponseSpec getAs(String token, Object id) {
+        return http.get().uri(APPOINTMENTS + "/{id}", id).headers(headers -> headers.setBearerAuth(token)).exchange();
     }
 
     protected ResponseSpec cancel(Object id) {
-        return http.post().uri(APPOINTMENTS + "/{id}/cancel", id).exchange();
+        return cancelAs(tokens.admin(), id);
+    }
+
+    protected ResponseSpec cancelAs(String token, Object id) {
+        return http.post().uri(APPOINTMENTS + "/{id}/cancel", id).headers(headers -> headers.setBearerAuth(token))
+                .exchange();
     }
 
     protected ResponseSpec availability(long dealershipId, long serviceTypeId, String date) {

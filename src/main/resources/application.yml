@@ -24,10 +24,18 @@ spring:
   web:
     locale: en
     locale-resolver: fixed
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${SUPABASE_URL:http://127.0.0.1:54321}/auth/v1/.well-known/jwks.json
+          issuer-uri: ${SUPABASE_URL:http://127.0.0.1:54321}/auth/v1
+          jws-algorithms: ES256
+          audiences: authenticated
 
 logging:
   pattern:
-    correlation: "[%X{requestId:-}] "
+    correlation: "[%X{requestId:-}%replace( %X{userId:-}){'^ $', ''}] "
 
 scheduler:
   booking-lock-timeout: 3s

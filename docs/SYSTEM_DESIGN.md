@@ -110,18 +110,21 @@ later `V2__...` as an ignored lower version and fails validation.
 
 ## API
 
-Built by OpenSpec changes `add-api-foundation`, `add-appointment-booking` and
-`add-availability-search`. Swagger UI: `/swagger-ui.html`.
+Built by OpenSpec changes `add-api-foundation`, `add-appointment-booking`, `add-availability-search` and `add-supabase-auth`.
+Swagger UI: `/swagger-ui.html`.
 
-| Endpoint | Returns |
-| --- | --- |
-| `GET /api/v1/service-types` | `{"items": [...]}` of `id`, `code`, `name`, `durationMinutes` |
-| `GET /api/v1/dealerships` | `{"items": [...]}` of `id`, `name`, `timeZone`, `opens`, `closes` (`HH:mm`, local) |
-| `GET /api/v1/dealerships/{id}` | the dealership plus `serviceBays` and `technicians` (with `qualifiedServiceTypeIds`) |
-| `GET /api/v1/dealerships/{id}/availability?serviceTypeId=&date=` | the bookable start times of one local day, with free bay and technician counts |
-| `POST /api/v1/appointments` | `201` + `Location`: the booked appointment; optional `Idempotency-Key` header |
-| `GET /api/v1/appointments/{id}` | the appointment in its current state |
-| `POST /api/v1/appointments/{id}/cancel` | `200`: the cancelled appointment (idempotent) |
+| Endpoint | Token | Returns |
+| --- | --- | --- |
+| `GET /api/v1/service-types` | public | `{"items": [...]}` of `id`, `code`, `name`, `durationMinutes` |
+| `GET /api/v1/dealerships` | public | `{"items": [...]}` of `id`, `name`, `timeZone`, `opens`, `closes` (`HH:mm`, local) |
+| `GET /api/v1/dealerships/{id}` | public | the dealership plus `serviceBays` and `technicians` (with `qualifiedServiceTypeIds`) |
+| `GET /api/v1/dealerships/{id}/availability?serviceTypeId=&date=` | currently public; policy pending | the bookable start times of one local day, with free bay and technician counts |
+| `POST /api/v1/appointments` | required | `201` + `Location`: the booked appointment; optional `Idempotency-Key` header |
+| `GET /api/v1/appointments/{id}` | required | the appointment in its current state |
+| `POST /api/v1/appointments/{id}/cancel` | required | `200`: the cancelled appointment (idempotent) |
+
+"Required" means `Authorization: Bearer <Supabase access token>`, and what the caller may do depends
+on its role (see Access control).
 
 An appointment carries `id`, `status`, the four request ids, `serviceBay` and `technician`
 (`{id, name}`), and `startTime`/`endTime` with the dealership's offset plus its `timeZone`:
@@ -210,6 +213,8 @@ fails when a constant is missing from the specs under `openspec/`.
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | request body content type not accepted |
 | `REQUEST_REJECTED` | other 4xx | fallback, keeps the original status |
 | `INTERNAL_ERROR` | 500 (other 5xx) | anything unexpected; generic detail, stack trace only in the log |
+| `UNAUTHENTICATED` | 401 | no token where one is needed, or a token that is malformed, expired, signed by an unknown key, or for another issuer or audience; with `WWW-Authenticate: Bearer` |
+| `FORBIDDEN` | 403 | a valid token whose role does not allow the request (see Access control) |
 | `DEALERSHIP_NOT_FOUND` | 404 | unknown dealership id |
 | `SERVICE_TYPE_NOT_FOUND`, `CUSTOMER_NOT_FOUND`, `VEHICLE_NOT_FOUND`, `APPOINTMENT_NOT_FOUND` | 404 | unknown reference |
 | `VEHICLE_NOT_OWNED_BY_CUSTOMER` | 422 | the vehicle belongs to another customer |
@@ -229,8 +234,10 @@ which nothing can start any more.
 
 ### Request id and logs
 
-- Every console line carries the id as `[<requestId>]` (`logging.pattern.correlation`). With
-  `LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs`, the ECS JSON lines carry it as a `requestId` field.
+- Every console line carries the id as `[<requestId>]` (`logging.pattern.correlation`), and on an
+  authenticated request also the caller's Supabase user id: `[<requestId> <userId>]`. Never an email
+  or a name. With `LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs`, the ECS JSON lines carry them as
+  `requestId` and `userId` fields. The access log line carries the request id only.
 - One access log line per `/api/**` request: `GET /api/v1/dealerships -> 200 (12 ms)`. Health
   probes are not logged.
 - A 4xx problem is logged at WARN without a stack trace. A 5xx problem is logged at ERROR with the
@@ -259,9 +266,11 @@ reuses it (see Availability). Services translate its results (`StartTimeViolatio
 ### Flow
 
 ```
-POST /api/v1/appointments   [Idempotency-Key]
+POST /api/v1/appointments   Authorization: Bearer <token>   [Idempotency-Key]
+ ├─ security chain: valid token ─────────────────────────────────────────── 401 UNAUTHENTICATED
  ├─ controller: @Valid body, header pattern ─────────────────────────────── 400 VALIDATION_FAILED
  └─ BookingService (no transaction of its own)
+     ⓪ AccessPolicy.mayBook(caller, dealership, customer)? ──────────────── 403 FORBIDDEN
      ① key = header, or a random UUID; fingerprint = SHA-256("v1|ids|start instant")
      ② key known? same fingerprint → 201 replay (current state); other → 422 IDEMPOTENCY_KEY_REUSED
      ③ read-only tx: 404 dealership/customer/vehicle/service type, 422 ownership,
@@ -276,6 +285,10 @@ POST /api/v1/appointments   [Idempotency-Key]
           database rejected it → BookingFailures (table below)
      ⑤ every attempt lost → 409 SLOT_CONTENTION
 ```
+
+The permission check (⓪) runs before the replay (②). A customer can put any `customerId` in the
+body, so a replay first would hand another customer's appointment to anyone who knows its key and
+request.
 
 The replay check (②) runs before the rules (③): a client whose first request succeeded but timed
 out may retry after the start time, and must get its appointment back rather than
@@ -343,7 +356,8 @@ A concurrent second cancellation waits for the row lock, re-checks its condition
 under `READ COMMITTED`, changes nothing and answers `200` with the cancelled appointment. Zero rows
 changed on a still confirmed appointment means it has started: `409 APPOINTMENT_ALREADY_STARTED`.
 Cancelling does not take the booking lock; a booking running at that moment may still decline the
-pair, which is conservative, never a double booking.
+pair, which is conservative, never a double booking. The caller's right to see the appointment is
+checked before that statement (see Access control).
 
 ### Metrics and log events
 
@@ -431,6 +445,98 @@ writes an access-log line. `scheduler_bookings_total` counts bookings only.
   `min(availableBays, availableTechnicians)` bookings fit at a slot. Because the two services call
   the repositories separately, this test also catches them reading different data.
 
+## Access control
+
+Built by OpenSpec change `add-supabase-auth`. People log in with Supabase Auth, which issues the
+access tokens. The backend has no login endpoint and never sees a password: it is an OAuth2 resource
+server that verifies each token locally.
+
+### Flow
+
+```
+ client ── e-mail + password ──▶ Supabase Auth /auth/v1/token ──▶ access token (ES256 JWT, ~1 h)
+ client ── Authorization: Bearer <token> ──▶ backend
+   RequestIdFilter (X-Request-Id, MDC)
+   └─ security chain, stateless (no session, no cookie, no CSRF)
+       ├─ BearerTokenAuthenticationFilter, if a token is sent:
+       │    signature (project JWKS, cached), exp/nbf, iss, aud ──────────── 401 UNAUTHENTICATED
+       ├─ SupabaseJwtConverter: sub + app_metadata → AuthenticatedUser, ROLE_*
+       ├─ UserIdLogFilter: userId → MDC
+       └─ URL rules:
+            catalog, Swagger UI, /v3/api-docs, /actuator/health/** ──────── public
+            /actuator/** (prometheus, metrics, info) ─────────────────────── ADMIN, else 403 FORBIDDEN
+            anything else, unknown paths included ────────────────────────── token, else 401
+   AppointmentController (@AuthenticationPrincipal AuthenticatedUser)
+   └─ BookingService / AppointmentService → AccessPolicy (pure, unit-tested)
+        booking not allowed ─────────────────────────────────────────────── 403 FORBIDDEN
+        appointment not visible ─────────────────────────────────────────── 404 APPOINTMENT_NOT_FOUND
+```
+
+The entry point and the access-denied handler only set the status (`sendError`). The container's
+error dispatch then reaches `ProblemErrorController`, so `401` and `403` are the same problem+json as
+every other error, with `requestId` and, on `401`, `WWW-Authenticate: Bearer`. A token that fails
+verification is rejected even on a public path.
+
+### Roles
+
+The role and its link are in the token's `app_metadata`, which only the Supabase dashboard or the
+Admin API can change. `user_metadata` is writable by the user and never read.
+
+| `app_metadata.scheduler_role` | Needs | Books | Reads and cancels | Actuator |
+| --- | --- | --- | --- | --- |
+| `customer` | `customer_id` | only with that `customerId`, at any dealership | that customer's appointments | no |
+| `advisor` | `dealership_id` | any customer, only at that dealership | that dealership's appointments | no |
+| `admin` | - | everything | everything | yes |
+| missing, unknown, or without the id it needs | - | `403` | `403` | `403` |
+
+- Ids may be JSON numbers or numeric strings; role names are case-insensitive.
+- An appointment the caller may not see answers `404 APPOINTMENT_NOT_FOUND`, exactly like an unknown
+  id, so a response never confirms that someone else's appointment exists.
+- Booking checks the caller first, before the idempotency replay and every booking rule (request
+  validation, `400`, still comes first). A forbidden booking counts as
+  `scheduler_bookings_total{outcome="rejected"}`.
+- Cancelling checks visibility before the conditional update, so a forbidden cancel changes nothing.
+  The dealership and customer of an appointment never change after insert, so no concurrent request
+  can invalidate that check.
+
+### Token verification
+
+- `spring.security.oauth2.resourceserver.jwt` in `application.yml`: the JWKS URI and the issuer come
+  from `SUPABASE_URL`; ES256 only (Spring would otherwise expect RS256); audience `authenticated`.
+  Spring Boot builds the decoder and its validators; the application defines none of its own.
+- No Supabase secret is in the backend. The public keys are fetched on the first token and cached;
+  a token with an unknown `kid` triggers a new fetch, which handles key rotation. The application
+  starts even when Supabase is unreachable; new tokens then answer `401` until the keys can be read.
+- Expiry uses Spring's system clock with 60 s of skew, not the application `Clock`: tokens are
+  real-time artefacts, booking rules use business time.
+- A role change applies when the user's token is next refreshed (at most about an hour). Revocation
+  before expiry is not supported.
+- Tests never call Supabase. `TestTokens` signs tokens with a key pair generated at startup, and
+  Boot's real decoder downloads that key's JWKS from memory, so the tests exercise the production
+  validators (`TestSecurityConfiguration`).
+
+### Getting a token
+
+1. Put `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY` in `.env` (template in
+   `.env.example`). Only the demo script and cURL use the two keys; the backend needs the URL only.
+2. Create the demo users (admin, an advisor of the Saigon dealership, customers Emma and Duc):
+
+   ```bash
+   DEMO_USER_PASSWORD='choose-one' python scripts/supabase-demo-users.py
+   ```
+
+3. Log in and call the API:
+
+   ```bash
+   TOKEN=$(curl -s "$SUPABASE_URL/auth/v1/token?grant_type=password" \
+     -H "apikey: $SUPABASE_PUBLISHABLE_KEY" -H "Content-Type: application/json" \
+     -d '{"email": "emma.wilson@example.com", "password": "choose-one"}' \
+     | python -c "import json, sys; print(json.load(sys.stdin)['access_token'])")
+   curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/appointments/<id>
+   ```
+
+   In Swagger UI, "Authorize" takes the same token.
+
 ## Code conventions
 
 - DTOs are Java records; each response has a static `of()` mapper. Mappings convert time zones and
@@ -447,8 +553,8 @@ Ambiguities in the brief, resolved as follows:
   off yet).
 - Any active service bay can host any service type (no bay types).
 - A dealership has the same opening hours every day and no holidays.
-- Idempotency keys are global (there is no client identity yet) and live as long as their
-  appointment.
+- Idempotency keys are global, not scoped per user, and live as long as their appointment. The
+  permission check before the replay stops a caller from replaying someone else's booking.
 - A technician whose qualification for a service type is inactive is not qualified for it.
   Inactive bays and technicians are still listed by the catalog, with `active: false`.
 - Catalog lists are small and returned unpaginated; the `items` wrapper leaves room for pagination.
@@ -467,6 +573,16 @@ Ambiguities in the brief, resolved as follows:
   booking. A request without a key gets a server-generated one and is never deduplicated.
 - Vehicle ownership is checked when booking; a later change of owner does not affect existing
   appointments. A vehicle cannot hold two overlapping appointments, even at different dealerships.
+- A Supabase user is linked to a customer, or to a dealership for staff, by an administrator setting
+  `app_metadata` (`scheduler_role`, `customer_id`, `dealership_id`). There is no self-service linking.
+- An advisor may book for any customer at their own dealership, and sees all of that dealership's
+  appointments.
+- A valid token without a known role, or without the id its role needs, is authenticated but has no
+  permission on appointments (`403`).
+- Another user's appointment is reported as not found rather than forbidden.
+- Catalog data (dealerships, bays, technician names, service types) is public.
+- Every actuator endpoint except health is for admins only. A separate management port for
+  Prometheus scraping is the production follow-up.
 - The availability search's `date` is a calendar date at the dealership, not at the client. A past
   date, or today once nothing can start, returns `200` with empty `slots`, not an error.
 - A listed slot is not reserved: another booking may take it first, or the vehicle may already have

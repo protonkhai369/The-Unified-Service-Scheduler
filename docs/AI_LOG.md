@@ -628,3 +628,90 @@ Gaps:
   All database tests used PostgreSQL Testcontainers, never Supabase. OpenSpec strict validation:
   8 passed, 0 failed. `git diff --check` passed. `mvnw.cmd` itself still fails on a null `Target[0]`
   lookup in this environment, so verification invoked the cached Maven executable directly.
+
+## 2026-11-03 - add-supabase-auth (OpenSpec change)
+
+Login and authorisation with Supabase Auth: the backend became an OAuth2 resource server for
+Supabase access tokens, with roles `customer`, `advisor` and `admin`. Driven through OpenSpec with
+Claude Code: propose, human review, then `/opsx:apply` with tests written before each implementation
+task. The user worked in Vietnamese; the artifacts and code are in English.
+
+### Decisions taken with the user (propose)
+
+- Three roles: customer, advisor (per dealership) and admin.
+- Roles and links (`scheduler_role`, `customer_id`, `dealership_id`) live in Supabase
+  `app_metadata`, not in a database table: no migration and no query per request.
+- Public without a token: the catalog, Swagger UI with the OpenAPI document, and actuator health.
+
+### Decisions taken by the AI
+
+- Before writing the proposal, the AI fetched the live project's JWKS (HTTP 200, one `EC`/`ES256`/
+  `P-256` key). So the backend verifies tokens with public keys and holds no Supabase secret, and
+  `jws-algorithms: ES256` is mandatory (Spring defaults to RS256).
+- Another user's appointment answers `404 APPOINTMENT_NOT_FOUND`, like an unknown id, so a response
+  never confirms that it exists. A token without a usable role answers `403` on every appointment
+  endpoint, because the spec separates "no permission at all" from "not yours".
+- The booking permission check runs before the idempotency replay. A customer can put any
+  `customerId` in the body, so a replay first would let anyone who knows another customer's key and
+  request read that appointment. `BookingPermissionIntegrationTest` covers it.
+- Cancelling checks visibility before the conditional `UPDATE`, otherwise a customer could cancel
+  someone else's appointment and only then get a `404`.
+- Deny by default: anything not listed as public needs a token, unknown paths included. The
+  error-responses scenario "Framework error" was changed to an authenticated client.
+
+### Changes to the design during implementation
+
+- **Tests run the production decoder.** The design planned a `@Primary JwtDecoder` built from a test
+  key, sharing a validator factory with production. Disassembling Boot 4.1.2's `JwtDecoderConfiguration`
+  showed that it applies `JwkSetUriJwtDecoderBuilderCustomizer` beans before building the decoder.
+  The tests therefore keep Boot's decoder (ES256, issuer, audience, expiry from `application.yml`),
+  and a customizer only serves the test public key in place of the JWKS download. There is no
+  production `JwtDecoder` or validator factory. As a result, removing `jws-algorithms: ES256` from
+  `application.yml` makes the tests fail.
+- **401 and 403 use the existing error path.** The entry point and the access-denied handler only call
+  `sendError`. `ProblemErrorController` renders the problem on the error dispatch, and
+  `ErrorCode.forStatus` maps 401 and 403. The design had them write the problem themselves.
+- **Admin-only actuator.** Every actuator endpoint except health is admin-only, not just Prometheus and
+  metrics.
+- **Python demo-user script.** The script is standard-library Python, not bash. `jq` is not installed
+  on this machine, and building JSON that holds a password with `printf` is unsafe.
+- `design.md`, `tasks.md` and `proposal.md` were updated to match, and the change validates.
+
+### Problems found during implementation
+
+- Docker Desktop was not running, so the first red run failed at startup ("Could not find a valid
+  Docker environment") rather than on assertions. Docker was started and the tests were run again.
+- In the first red run, the authentication tests failed only on the missing `WWW-Authenticate`
+  header, and requests without a token reached the controllers. Cause: the probe `SecurityFilterChain`
+  in `ProbeConfiguration` was the only chain, which makes Boot drop its default chain. This was the
+  expected red: there was no application chain yet.
+- With security on but before the converter existed, an admin token got `403` on Prometheus: Spring's
+  default converter maps `scope`, not `app_metadata`. `SupabaseJwtConverter` fixed it.
+- The new console pattern `[requestId userId]` broke `logsClientErrorsWithoutStackTrace`, which
+  expected `[warn-1]` on an authenticated request. The assertion now includes the test user's id.
+- Bash heredocs holding long Python scripts failed in the agent's shell again. The scripts were
+  written to the scratchpad and run from there.
+
+### Verification
+
+- `./mvnw clean test`: `Tests run: 253, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS (204
+  before this change, 49 new).
+  - The whole run used one Spring context and one Tomcat start.
+- Each implementation task had a red run first:
+  - authentication: 7 of 11 failed;
+  - converter and policy: did not compile;
+  - booking permissions: 6 of 9 failed;
+  - visibility: 6 of 10 failed;
+  - OpenAPI and log line: 2 failed.
+- Every scenario of `specs/access-control` (26) has a test whose `@DisplayName` is the scenario name,
+  checked by a script. The modified error-responses scenarios are covered by
+  `ErrorHandlingIntegrationTest.unknownPathIsProblemWithEveryMember`,
+  `AuthenticationIntegrationTest.unknownPathWithToken` and `AuthenticationIntegrationTest.noToken`.
+- `scripts/supabase-demo-users.py` ran twice against a local fake Admin API.
+  - The first run created 4 users and the second updated the same 4.
+  - Every request carried the secret key in both headers.
+  - `app_metadata` held the expected role and id.
+  - Neither the key nor the password appeared in the output.
+- Live Supabase (task 7.2) is pending the user's go-ahead, because it creates real users. Until then,
+  real Supabase tokens are verified only through the JWKS check made before the proposal.
+- `openspec validate add-supabase-auth --strict`: valid.

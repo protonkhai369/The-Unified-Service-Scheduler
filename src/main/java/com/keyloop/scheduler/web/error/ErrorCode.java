@@ -12,6 +12,9 @@ public enum ErrorCode {
     REQUEST_REJECTED(HttpStatus.BAD_REQUEST, "The request was rejected."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred."),
 
+    UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "A valid bearer access token is required."),
+    FORBIDDEN(HttpStatus.FORBIDDEN, "The caller is not allowed to perform this request."),
+
     DEALERSHIP_NOT_FOUND(HttpStatus.NOT_FOUND, "Dealership %d does not exist."),
     SERVICE_TYPE_NOT_FOUND(HttpStatus.NOT_FOUND, "Service type %d does not exist."),
 
@@ -52,6 +55,8 @@ public enum ErrorCode {
 
     public static ErrorCode forStatus(HttpStatusCode status) {
         return switch (status.value()) {
+            case 401 -> UNAUTHENTICATED;
+            case 403 -> FORBIDDEN;
             case 404 -> NOT_FOUND;
             case 405 -> METHOD_NOT_ALLOWED;
             case 415 -> UNSUPPORTED_MEDIA_TYPE;
