@@ -613,6 +613,76 @@ steps are designed but not built:
   Its quality has to be measured on a fixed evaluation set (query → expected service, plus nonsense
   queries that must return nothing) before it ships.
 
+## Web client
+
+Built by OpenSpec change `add-web-client`, in `frontend/`. It is a React 19 + TypeScript single-page
+app (Vite, Tailwind v4, TanStack Query, React Router), and it uses only the public API above. Setup
+and tests: `frontend/README.md`.
+
+```
+ browser (React SPA, frontend/)
+   ├─ supabase-js ── e-mail + password ──▶ Supabase Auth ──▶ access token (kept by supabase-js, refreshed)
+   └─ lib/api.ts ── /api/v1/…, Authorization: Bearer <token> ──▶ Vite dev proxy ──▶ backend :8080 ──▶ PostgreSQL
+         401 → sign out, "session expired"          problem+json → ApiError(code, requestId) → plain-language message
+```
+
+| Role | Start page | Pages and the endpoints they use |
+| --- | --- | --- |
+| Customer | Book a service | booking flow: `/me/vehicles`, catalog, `…/availability`, `POST /appointments`; My appointments: `/me/appointments`, `POST …/cancel` |
+| Advisor | Day schedule | Day schedule: `/dealerships/{id}` (bays, hours), `/dealerships/{id}/appointments?date=`; Book for a customer: `/customers?q=`, then the booking flow |
+| Admin | Day schedule | as an advisor, with a dealership picker |
+
+`GET /api/v1/me` decides the start page and the navigation. An account whose role lacks its link
+(a customer without `customer_id`, an advisor without `dealership_id`) or has no role gets the page
+"Your account is not linked yet", not an error.
+
+How the backend's guarantees appear in the client:
+- **Dealership time.** Dates, slots and appointments are shown in the dealership's zone, with the
+  zone named. "Today" and the date picker's minimum are today at the dealership, not on the device.
+- **Idempotent confirm.** Entering the confirm step creates one `Idempotency-Key`
+  (`crypto.randomUUID()`). "Try again" after a network failure, a `500` or `SLOT_CONTENTION` resends
+  the same key, so a request that did succeed is replayed rather than booked twice. A ref also
+  ignores a second click while the first is in flight.
+- **Slot taken meanwhile.** `409 NO_AVAILABILITY` takes the person back to the time step, says so,
+  and refetches the free times. A booking or a cancellation invalidates the cached availability, day
+  schedule and appointment lists.
+- **Errors.** Every business `ErrorCode` has an English sentence (`lib/errors.ts`). Protocol codes
+  (`NOT_FOUND`, `METHOD_NOT_ALLOWED`, `UNSUPPORTED_MEDIA_TYPE`, `REQUEST_REJECTED`), `INTERNAL_ERROR`,
+  an unknown code and a body that is not a problem all mean a bug or an outage. They show a generic
+  sentence with the request id, for support. Errors are rendered in `role="alert"`.
+- **Customer search.** The query is sent once it has at least two characters and typing has paused
+  for 300 ms. That matches the backend's `2–100` rule and sends one request per word rather than one
+  per key.
+
+The day schedule draws one row per active bay. From 768 px up it is a timeline over the opening
+hours, each appointment placed by start and duration; below that, each bay's appointments are a
+list. The URL holds the date (and an admin's dealership), so a day can be bookmarked or shared.
+
+### Palette and contrast
+
+Minimalist, on the user's colours: navy, ocean blue, yellow, black (ink) and white, plus three greys
+and a red kept for errors and cancelling. `frontend/src/styles/tokens.ts` is the single source.
+`tokens.test.ts` computes every ratio below, and fails if a text pair drops under 4.5:1, a border or
+focus pair under 3:1, or `index.css` drifts from the tokens.
+
+| Pair | Ratio | Use |
+| --- | --- | --- |
+| ink `#0A0A0A` on white | 19.8 | body text |
+| navy `#0B2545` on white | 15.4 | headings |
+| ocean `#0B5FAE` on white | 6.4 | links, secondary buttons, focus ring |
+| slate `#475569` on white | 7.6 | secondary text |
+| danger `#B91C1C` on white | 6.5 | error text, the cancel action |
+| ink on mist `#F5F7FA` | 18.4 | text on subtle surfaces |
+| white on navy | 15.4 | top bar |
+| yellow `#FACC15` on navy | 10.0 | active navigation, logo, focus ring on the top bar |
+| ink on yellow | 12.9 | the primary button, the selected option |
+| field `#64748B` on white | 4.8 | input and option borders |
+| yellow on white | **1.5** | never used: yellow is never text or a border on white |
+| ocean on navy | **2.4** | never used: no ocean links on the top bar |
+
+Each screen has at most one yellow (primary) action. Icons are SVG (`lucide-react`), never emoji.
+Animations are switched off for `prefers-reduced-motion`. The layout starts at 375 px.
+
 ## Code conventions
 
 - DTOs are Java records; each response has a static `of()` mapper. Mappings convert time zones and
@@ -677,3 +747,8 @@ Ambiguities in the brief, resolved as follows:
 - `availableBays` and `availableTechnicians` are counted independently; the number of bookings that
   still fit at a start time is the smaller of the two.
 - There is no booking horizon: any future date can be searched, as any future time can be booked.
+- The web client is English only and light mode only. Errors are red, the one colour outside the
+  user's palette, because yellow cannot be read on white.
+- The web client has no sign-up and no rescheduling: accounts and their links are created by an
+  administrator, and a change of time is a cancellation followed by a new booking.
+- An admin's day schedule opens on the first dealership; an advisor's is fixed to their own.

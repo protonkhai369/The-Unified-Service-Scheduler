@@ -6,8 +6,9 @@ tool details; this file is the source of truth.
 
 Keyloop technical assessment, **Scenario A** (Ownership domain): a Spring Boot REST backend that books
 dealership service appointments, guaranteeing a service bay and a qualified technician are both free
-for the whole service duration. Only the backend is built; clients are stubbed with OpenAPI/Swagger UI
-and cURL. The brief is `KeyloopCodingChallange.pdf` (not committed).
+for the whole service duration. The backend is the core deliverable; `frontend/` holds a React web
+client for it, and Swagger UI and cURL remain the reference clients. The brief is
+`KeyloopCodingChallange.pdf` (not committed).
 
 **Current state:** the application code was reset to a bare skeleton on 2026-10-30 (entry point,
 configuration, base test). `openspec/specs/` describes the target behaviour; features are rebuilt
@@ -25,7 +26,9 @@ with roles `customer`, `advisor` and `admin` from `app_metadata`. Change `add-se
 added `/api/v1/me`, `/api/v1/me/vehicles`, `/api/v1/me/appointments` and a dealership's day
 (`/api/v1/dealerships/{id}/appointments?date=`). Change `add-customer-search` added staff search of
 customers by name or email (`/api/v1/customers?q=`), accent- and typo-tolerant with `unaccent` and
-`pg_trgm` (migration `V2`).
+`pg_trgm` (migration `V2`). Change `add-web-client` added the web client in `frontend/` (React 19,
+TypeScript, Vite, Tailwind v4, TanStack Query): customer booking and appointments, the day schedule,
+and booking for a customer.
 
 ## Commands
 
@@ -33,7 +36,15 @@ customers by name or email (`/api/v1/customers?q=`), accent- and typo-tolerant w
 ./mvnw test                 # tests on a throwaway Testcontainers PostgreSQL (Docker must be running)
 ./mvnw spring-boot:run      # uses the database in .env (Supabase); falls back to localhost:5432
 openspec validate --all --strict
+
+npm --prefix frontend test              # Vitest + MSW, offline (no backend, no Supabase)
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+npm --prefix frontend run dev           # http://localhost:5173, proxies /api to :8080
 ```
+
+Run frontend tools through `npm --prefix frontend` (or from inside `frontend/`). A bare `npx vitest`
+from the repository root picks up a globally installed Vitest and fails for unrelated reasons.
 
 This machine's default `JAVA_HOME` is JDK 17, but the project targets Java 21. Prefix Maven commands
 with `JAVA_HOME="/c/Program Files/Java/jdk-23"` (Git Bash) unless `JAVA_HOME` has been changed.
@@ -70,6 +81,7 @@ The same steps are also available as `openspec-*` skills, triggered by asking in
 | Schema, indexes, constraints, migrations | `postgresql-table-design` |
 | Endpoint design, status codes, versioning | `api-design-principles` |
 | Dockerfile | `multi-stage-dockerfile` |
+| Web client pages, components, colour, layout, accessibility | `ui-ux-pro-max` |
 | New feature or bug fix | `test-driven-development` |
 | Failing test, bug, unexpected behaviour | `systematic-debugging` |
 | Before saying anything is done, fixed or passing | `verification-before-completion` |
@@ -159,6 +171,15 @@ whole toolkit to another project with `scripts/install-agent-skills.sh`.
   factory invariants such as `Appointment.confirmed`). DTOs are records with static `of()` mappers;
   there is no MapStruct. Lombok runs from the `maven-compiler-plugin` processor path, because JDK 23+
   does not run processors found on the class path.
+- Web client (`frontend/`):
+  - Colours come only from the tokens in `src/styles/tokens.ts`, mirrored in `index.css` `@theme`.
+    Yellow is never text or a border on white. A screen has at most one primary (yellow) action. A new
+    colour pair gets an entry in `textPairs` or `uiPairs`, so `tokens.test.ts` checks its contrast.
+  - Times are shown in the dealership's zone through `lib/time.ts`, never in the device's zone.
+  - A new business `ErrorCode` gets a sentence in `lib/errors.ts` and an entry in `errors.test.ts`.
+  - Tests render the app with `renderApp` against MSW handlers (`mockApi`) and a fake `AuthClient`.
+    They never call the backend or Supabase. Name app-level tests after the spec's scenarios.
+  - The browser may hold only the Supabase publishable key, in the git-ignored `frontend/.env.local`.
 - TDD applies to new work. Do not delete or rewrite existing, tested code just to redo it test-first.
 - Log non-trivial AI decisions and verification steps in `docs/AI_LOG.md`; "AI Engineering &
   Verification" is a scored criterion of the assessment.
