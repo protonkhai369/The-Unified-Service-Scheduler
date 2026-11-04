@@ -968,3 +968,114 @@ requirement at a time.
   - `git status` shows no change under `src/` or in `pom.xml`;
   - the `.txt` summaries count only 236, because they leave out nested test classes. The XML
     reports are the ones to quote.
+
+## 2026-11-04 - Live end-to-end run, demo data and race demo (no OpenSpec change)
+
+Both applications ran against the Supabase project for the first time, with real users. The user
+asked for:
+- manual test scenarios;
+- sample data;
+- a way to *see* idempotency and slot contention work, not only read that the tests pass;
+- a README and a testing guide.
+
+No behaviour changed. The new files are `scripts/demo-appointments.py`, `scripts/race-demo.py`,
+`docs/TESTING.md` and a rewritten `README.md`.
+
+### Decisions taken with the user
+
+- **No sign-up.** It stays a recorded non-goal of `add-web-client`. Roles live in `app_metadata`,
+  which only the Admin API can write, and the backend holds no Supabase secret. A new customer
+  would also have no vehicle to book. The demo users come from `scripts/supabase-demo-users.py`.
+- **Show the guarantees on the live stack.** The concurrency tests run on a local container. The
+  race demo fires parallel requests at the running backend and its real database, and draws them
+  as a timeline.
+- **Docs on `docs/readme-and-design`.** The branch had no commits of its own and was an ancestor of
+  `HEAD`. It was moved to `HEAD` and checked out, so nothing was lost and the docs describe the
+  current code.
+
+### Decisions taken by the AI
+
+- **Sample appointments go through the API, not SQL.** They pass the booking lock, the rules and
+  the constraints like any booking, and `R__demo_data.sql` keeps only catalog and customer data. A
+  fixed `Idempotency-Key` per booking makes re-runs replay.
+- **Dates relative to today.** The scripts book relative to today. They take local start times
+  from the availability response, so they need no time-zone database (Windows Python has none by
+  default).
+- **Invariants versus ideal outcomes.** The first race run counted every `SLOT_CONTENTION` as a
+  failure. The checks were split:
+  - *Invariants* must always hold, and a failure is a bug: no overlap on a bay, technician or
+    vehicle; capacity respected; one key, one appointment; failures persist nothing.
+  - *Ideal outcomes* hold when no request times out waiting for the lock.
+  The demo then ran at 3 s and at 30 s to separate latency from correctness.
+- **The race demo owns one day** (default: 30 days ahead). It cancels that day's confirmed
+  appointments first, so it can run again. `docs/TESTING.md` says so in bold.
+
+### Problems found
+
+- **Supabase keys pasted into the template.** The keys, including the secret key, were pasted into
+  `frontend/.env.example`, which `.gitignore` keeps tracked (`!.env.example`). They were moved to
+  the root `.env` and the template was restored before anything was committed. A check of every
+  commit of that file found no key.
+- **A stale `frontend/.env`.** It held the URL and publishable key of another Supabase project.
+  `frontend/.env.local` overrides it; the troubleshooting table in `docs/TESTING.md` mentions it.
+- **`SLOT_CONTENTION` under latency.** With the backend in Vietnam and the database in eu-west-1, a
+  new booking took 4.1-4.7 s uncontended, and a replay took 0.2-0.3 s. In races of 3 to 8 requests,
+  later requests waited past `booking-lock-timeout` (3 s). No invariant broke. Recorded in
+  `docs/SYSTEM_DESIGN.md` (Three layers against double booking) and the README's limitations.
+- **Bay order in the live database.** Bays are allocated and listed by id, but the ids do not follow
+  the names: Bay B before Bay A, Bay 3 before Bay 1. The cause is that `R__demo_data.sql` inserts
+  bays with `INSERT ... SELECT ... JOIN` and no `ORDER BY`. The logic is correct; the order is
+  cosmetic and was not changed.
+- **Seen in the browser, not changed:**
+  - a 30-minute block on the day schedule is too narrow, and its text is clipped;
+  - the London time axis's `18:00` label overflows the right edge slightly;
+  - an advisor is offered every dealership, although booking elsewhere answers `403`.
+- **Typo tolerance needs the full name.** `emma wilsn` and `minh le duc` find the customer, but a
+  lone misspelt `wilsn` does not. That is by design: similarity is measured against the full name,
+  at 0.3. A first draft of the docs claimed otherwise and was corrected after querying the API.
+- **Leftover processes on Windows.** Stopping a background `spring-boot:run` or `npm run dev` left
+  the `java` or `node` child holding its port. Each was stopped by PID after checking its command
+  line.
+
+### Verification
+
+- **Backend against Supabase:**
+  - Flyway migrated `scheduler` from V1 to V2; the demo data was skipped because rows existed;
+  - `/actuator/health` answered `UP`;
+  - catalog endpoints answered without a token, and `/api/v1/me` answered `401`;
+  - the JWKS endpoint serves one ES256 key.
+- **Demo users and data:**
+  - `supabase-demo-users.py` created the 4 users;
+  - signed in as each, `/api/v1/me` returned the expected role and link;
+  - the Saigon advisor got `403` on London's schedule;
+  - on the fully booked Saigon day, the availability search returned 0 brake slots and 19
+    oil-change slots;
+  - `demo-appointments.py`, run a second time, skipped every slot already taken.
+- **Browser (headless Edge, driven through the DevTools protocol):**
+  - a wrong password showed "E-mail or password is incorrect.";
+  - Emma, the advisor and the admin each landed on their start page;
+  - the advisor's day showed the seeded appointment.
+
+  The booking flow in the browser was not driven. Tasks 8.3 and 10.4 of `add-web-client` stay open
+  for the user's manual run.
+- **Automated suites:**
+  - `./mvnw test`: 341 tests, 0 failures, 0 errors;
+  - `BookingConcurrencyIntegrationTest`, `IdempotencyIntegrationTest` and
+    `ConcurrentInsertIntegrationTest` alone: 17 tests passing;
+  - `npm --prefix frontend test`: 98 tests passing;
+  - typecheck: clean;
+  - build: 561.35 kB of JS (165.22 kB gzip), with Vite's warning for chunks over 500 kB;
+  - `openspec validate --all --strict`: 13 passed.
+- **Race demo, live:**
+
+  | `booking-lock-timeout` | Invariants | Ideal outcomes | `SLOT_CONTENTION` |
+  | --- | --- | --- | --- |
+  | 3 s | 20/20 | 2/4 | 2 |
+  | 3 s | 20/20 | 0/4 | 7 |
+  | 30 s | 20/20 | 4/4 | 0 |
+
+  In every run:
+  - each idempotency race created exactly one appointment for its key;
+  - the day read back had no overlapping appointments on any bay, technician or vehicle;
+  - Prometheus `scheduler_booking_conflicts_total` did not move, so no request lost a race past
+    the lock.

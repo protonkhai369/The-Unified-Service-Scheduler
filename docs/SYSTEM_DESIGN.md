@@ -333,6 +333,19 @@ it is transaction-scoped, so `COMMIT`/`ROLLBACK` release it, including through S
 pooler. Waiting is bounded by `lock_timeout` (`scheduler.booking-lock-timeout`, 3 s), which must
 stay above PostgreSQL's `deadlock_timeout` (1 s) so that a deadlock is reported as such.
 
+The 3 s assumes the backend runs next to its database. Every statement in the locked section is a
+network round trip, so the further the backend is from the database, the longer each booking holds
+the lock. In one measurement, the backend ran in Vietnam and the database in eu-west-1:
+- an uncontended booking took about 4 s end to end;
+- in a race of 3 to 8 simultaneous bookings for one dealership and day, the later requests waited
+  past 3 s and got `409 SLOT_CONTENTION`.
+
+Nothing was double-booked: those requests failed fast and persisted nothing. With a 30 s timeout,
+every race ended with the business outcome instead (`NO_AVAILABILITY`, `VEHICLE_ALREADY_BOOKED` or
+an idempotent replay). Deploy the backend in the database's region; raise the timeout only together
+with the connection pool, because a waiting request holds a connection. `scripts/race-demo.py`
+reproduces this on any deployment (see `docs/TESTING.md`).
+
 `BookingFailures` reads the SQLSTATE and constraint name from PostgreSQL's own error, never the
 message:
 
