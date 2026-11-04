@@ -4,7 +4,8 @@ schema: spec-driven
 context: |
   Project: Unified Service Scheduler - Keyloop technical assessment, Scenario A (domain: Ownership).
   A backend REST service that replaces manual booking of dealership service appointments.
-  Only the backend layer is implemented; clients are stubbed via OpenAPI/Swagger UI and cURL examples.
+  The backend is the core deliverable; frontend/ holds a React web client for it, and OpenAPI/Swagger
+  UI and cURL examples remain the reference clients.
 
   Current state (2026-11-03): application code was reset to a skeleton on 2026-10-30 (entry point,
   configuration, Testcontainers base test). openspec/specs describes the TARGET behaviour; it is
@@ -20,7 +21,9 @@ context: |
   Change add-supabase-auth provides Supabase token verification and customer, advisor and admin roles.
   Change add-self-service-queries added /api/v1/me, /me/vehicles, /me/appointments and a
   dealership's day (/api/v1/dealerships/{id}/appointments?date=). Change add-customer-search added
-  staff customer search (/api/v1/customers?q=) with unaccent + pg_trgm (migration V2).
+  staff customer search (/api/v1/customers?q=) with unaccent + pg_trgm (migration V2). Change
+  add-web-client added the web client in frontend/: customer booking and appointments, the day
+  schedule, and booking for a customer.
 
   Core requirements from the brief (acceptance criteria):
   1. Resource-constrained booking: request an appointment for a vehicle, service type and
@@ -41,6 +44,9 @@ context: |
   - Tests: JUnit Jupiter + AssertJ; Testcontainers (real PostgreSQL) for integration tests
   - Lombok: @Getter on JPA entities only (no @Setter/@Data/@EqualsAndHashCode/@ToString/@Builder);
     DTOs are records with static of() mappers; no MapStruct
+  - Web client (frontend/): React 19 + TypeScript, Vite, Tailwind v4 (colours only from the tokens:
+    navy, ocean blue, yellow, ink, white; yellow never on white), TanStack Query, React Router,
+    supabase-js with the publishable key only. Tests: Vitest + Testing Library + MSW, offline.
 
   Architecture and key decisions:
   - Package by feature under com.keyloop.scheduler: scheduling (pure domain, no Spring),
@@ -101,6 +107,7 @@ rules:
     - Name the metrics and log events the change adds or affects.
   tasks:
     - Every task that changes behaviour has a matching test task (unit for pure domain,
-      Testcontainers integration test for persistence or HTTP behaviour).
-    - "End with a verification task: ./mvnw test passes and the relevant spec scenarios are
-      demonstrated."
+      Testcontainers integration test for persistence or HTTP behaviour, Vitest + MSW for the web
+      client).
+    - "End with a verification task: ./mvnw test passes (npm --prefix frontend test too when the web
+      client changes) and the relevant spec scenarios are demonstrated."

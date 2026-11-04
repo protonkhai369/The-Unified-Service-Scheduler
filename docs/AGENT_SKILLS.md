@@ -24,6 +24,7 @@ the MIT licence (each skill folder carries its upstream `LICENSE`). Content is p
 | [github/awesome-copilot](https://github.com/github/awesome-copilot) (maintained by GitHub) | ~41k | `b6483db` | `java-springboot`, `spring-boot-testing`, `java-testcontainers`, `java-hibernate-jpa`, `multi-stage-dockerfile`, `security-review` (Codex and Antigravity only) |
 | [obra/superpowers](https://github.com/obra/superpowers) | ~308k | `2ce8aa1` | `test-driven-development`, `systematic-debugging`, `verification-before-completion` |
 | [wshobson/agents](https://github.com/wshobson/agents) | ~42k | `0874a27` | `postgresql-table-design`, `api-design-principles` |
+| [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) (v2.15.0) | ~145k (Nov 2026) | `713eef5` | `ui-ux-pro-max` |
 
 ## Why these
 
@@ -35,6 +36,13 @@ the MIT licence (each skill folder carries its upstream `LICENSE`). Content is p
 - **Verification discipline.** The superpowers skills force evidence before "done", root cause before
   fixes, and red/green tests, which is what the assessment's "AI Engineering & Verification"
   criterion looks for.
+- **A web client, designed rather than improvised.** `ui-ux-pro-max` (added on the user's request
+  when a frontend was planned) searches local, curated data: styles, palettes, font pairings,
+  WCAG-based UX rules and stack-specific guidance, for example React. It runs with Python's standard
+  library only. It makes no network calls and starts no processes. It writes files only with
+  `--persist`, into `design-system/<slug>/` under the given directory, and the slug is sanitised
+  against path traversal. Its results are recommendations to judge, not rules: its first design
+  system for this project proposed a display font meant for festivals.
 - **Security review everywhere.** Claude Code has a built-in `/security-review`; Codex and
   Antigravity get the `security-review` skill, which never applies patches without human review.
 
@@ -44,8 +52,8 @@ the MIT licence (each skill folder carries its upstream `LICENSE`). Content is p
 - `github/awesome-copilot` `postgresql-code-review`: centred on JSONB/RLS, uses Copilot-only
   `${selection}` syntax.
 - `obra/superpowers` `writing-plans` / `executing-plans`: overlap with the OpenSpec workflow.
-- `anthropics/skills` `frontend-design` / `webapp-testing`: for web front ends; worth adding only if a
-  UI is built.
+- `anthropics/skills` `frontend-design` / `webapp-testing`: overlap with `ui-ux-pro-max`, which the
+  user chose for the web client.
 
 ## Local changes to upstream content
 
@@ -54,6 +62,12 @@ the MIT licence (each skill folder carries its upstream `LICENSE`). Content is p
   installs as a namespaced plugin).
 - `systematic-debugging/`: upstream `CREATION-LOG.md` and `test-*.md` (the skill's own test
   scenarios) not copied.
+- `ui-ux-pro-max/SKILL.md`: `${CLAUDE_PLUGIN_ROOT}/.claude/skills` replaced by each agent's own skills
+  folder (`.claude/skills`, `.codex/skills`, `.agent/skills`). The variable exists only when the skill
+  is installed as a Claude Code plugin; upstream's own CLI makes the same substitution.
+- `ui-ux-pro-max/`: only what the search needs at run time is copied: `SKILL.md`, `references/`, the
+  four runtime scripts and the CSV data. Upstream's maintainer tools (`validate_data.py`,
+  `scripts/tests/`) and provenance JSON files (1.3 MB, read only by those tools) are not copied.
 
 ## Archived configuration
 

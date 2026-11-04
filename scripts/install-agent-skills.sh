@@ -14,10 +14,14 @@ if [ -z "$TOOLS" ]; then
 fi
 
 skills_dir_for() {
+    echo "$TARGET/$(skills_path_for "$1")"
+}
+
+skills_path_for() {
     case "$1" in
-        claude) echo "$TARGET/.claude/skills" ;;
-        codex) echo "$TARGET/.codex/skills" ;;
-        antigravity) echo "$TARGET/.agent/skills" ;;
+        claude) echo ".claude/skills" ;;
+        codex) echo ".codex/skills" ;;
+        antigravity) echo ".agent/skills" ;;
         *) echo "Unsupported tool: $1 (expected claude, codex or antigravity)" >&2; exit 1 ;;
     esac
 }
@@ -28,6 +32,7 @@ for tool in "${TOOL_LIST[@]}"; do skills_dir_for "$tool" >/dev/null; done
 AWESOME_COPILOT="github/awesome-copilot@b6483db44fb602654bca6a097185fcaddb305f97"
 SUPERPOWERS="obra/superpowers@2ce8aa15d05bd57213e6f746f953aafb7ded7a8b"
 WSHOBSON="wshobson/agents@0874a27b17a22e2b7c2e2bcd725768e0803cad06"
+UI_UX_PRO_MAX="nextlevelbuilder/ui-ux-pro-max-skill@713eef51b04efc98d6fa565323b495f7c9c89fd4"
 
 STAGING=$(mktemp -d)
 trap 'rm -rf "$STAGING"' EXIT
@@ -88,6 +93,14 @@ fetch_skill "$WSHOBSON" plugins/backend-development/skills/api-design-principles
     SKILL.md assets/api-design-checklist.md assets/rest-api-template.py references/details.md \
     references/graphql-schema-design.md references/rest-best-practices.md
 
+fetch_skill "$UI_UX_PRO_MAX" .claude/skills/ui-ux-pro-max ui-ux-pro-max SKILL.md \
+    references/pro-rules.md references/quick-reference.md \
+    scripts/core.py scripts/design_system.py scripts/reasoning_contract.py scripts/search.py \
+    data/{app-interface,charts,colors,google-fonts,icons,landing,motion,products,react-performance}.csv \
+    data/{styles,typography,ui-reasoning,ux-guidelines}.csv \
+    data/stacks/{angular,astro,avalonia,flutter,html-tailwind,javafx,jetpack-compose,laravel}.csv \
+    data/stacks/{nextjs,nuxt-ui,nuxtjs,react-native,react,shadcn,svelte,swiftui,threejs,uno,uwp,vue,winui,wpf}.csv
+
 sed -i.bak 's/`superpowers:test-driven-development`/`test-driven-development`/; s/`superpowers:verification-before-completion`/`verification-before-completion`/' \
     "$STAGING/systematic-debugging/SKILL.md"
 rm -f "$STAGING/systematic-debugging/SKILL.md.bak"
@@ -100,6 +113,10 @@ for skill in java-springboot spring-boot-testing java-testcontainers java-hibern
 done
 for tool in "${TOOL_LIST[@]}"; do
     [ "$tool" != claude ] && deploy_skill security-review "$tool"
+    deploy_skill ui-ux-pro-max "$tool"
+    sed -i.bak "s#\${CLAUDE_PLUGIN_ROOT}/.claude/skills#$(skills_path_for "$tool")#g" \
+        "$(skills_dir_for "$tool")/ui-ux-pro-max/SKILL.md"
+    rm -f "$(skills_dir_for "$tool")/ui-ux-pro-max/SKILL.md.bak"
 done
 
 echo "Setting up OpenSpec"

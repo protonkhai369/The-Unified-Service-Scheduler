@@ -65,3 +65,6 @@ Desktop.ini
 
 # Local Postman collection for manual API testing (not part of the submission)
 postman/
+
+# Python bytecode (agent skill scripts)
+__pycache__/

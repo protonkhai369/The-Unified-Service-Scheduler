@@ -882,3 +882,89 @@ a customer and their vehicles to book on their behalf. Explored first in `/opsx:
   `CustomerController`: the test failed, and the annotation was restored.
 - `./mvnw clean test`: `Tests run: 341, Failures: 0, Errors: 0, Skipped: 0`, BUILD SUCCESS, with one
   Tomcat start (312 before this change, 29 new).
+
+## 2026-11-04 - add-web-client (OpenSpec change)
+
+A React web client in `frontend/` for the three roles. The user asked for a proper frontend and had
+the `ui-ux-pro-max` skill added for it. The colours are navy and ocean blue, black, yellow and white,
+in a minimalist style. The change was proposed and reviewed, then applied test-first, one spec
+requirement at a time.
+
+### Decisions taken with the user
+
+- React + Vite + TypeScript; roles customer, advisor and admin; the palette above; minimalism.
+- The user handles git: merges, commits and branches are theirs. The AI only reports what changed.
+
+### Decisions taken by the AI
+
+- **Design system from the skill.** Its closest product profile ("B2B Service: professional navy +
+  blue CTA") supplied the rules: one primary action per screen, SVG icons, visible focus, reduced
+  motion, 375 px first. The user's colours were measured before use: yellow on white is 1.5:1, so
+  yellow is only ever a background (with ink text) or text on navy. Red is the one colour added,
+  for errors and cancelling.
+- **Pinned, known major versions** (React 19, Vite 7.3, Vitest 3.2, Tailwind 4, TanStack Query 5,
+  MSW 2) rather than whatever `latest` resolves to, so the AI writes against APIs it knows. Each
+  version is exact in `package.json`.
+- **The backend's guarantees, made visible.**
+  - One `Idempotency-Key` per confirm step, reused by "Try again", plus a ref against double clicks.
+  - `NO_AVAILABILITY` returns to the time step and refetches the free times.
+  - Times are shown in the dealership's zone, with the zone named.
+- **Customer search** waits for two characters, the backend's own minimum, and for a 300 ms pause.
+  A test asserts that typing `duc` sends exactly one request.
+- **Day schedule:** a timeline from 768 px, a list per bay below; the URL holds the date.
+
+### Problems found during implementation
+
+- **Sign-in sometimes hung on a spinner.** `queryClient.clear()` ran after `signIn`, so it dropped
+  the `/me` query that the sign-in had just started. The cache is now cleared before signing in.
+- **Test overrides were ignored.** Within one MSW `server.use` call, the earlier handler wins, so the
+  default `/me` shadowed a test's override. `mockApi()` now registers defaults and overrides in two
+  calls.
+- **Spurious failures from the wrong directory.** Tests run from the repository root with `npx
+  vitest` used a globally installed Vitest 4. Commands now go through `npm --prefix frontend`, and
+  `AGENTS.md` says so. That run had left a `node_modules/.vite` cache in the root, which was removed.
+- **`@testing-library/jest-dom` 6.10.0** is published as deprecated. It was pinned to 6.9.1.
+- **Focus was not restored after the cancel dialog.** The appointment `Entry` component was defined
+  inside the page's render, so it remounted on every render and lost the focus target. It was moved
+  to module level.
+- **The token test could not read `index.css`.** `fileURLToPath(import.meta.url)` fails under
+  jsdom, and `?raw` returns an empty string with `css: false`. It now reads the file from
+  `process.cwd()`.
+- **Two business error codes had no message.** `CUSTOMER_NOT_FOUND` and `VEHICLE_NOT_FOUND` were
+  found by comparing the backend's `ErrorCode` enum with `lib/errors.ts` while writing the docs. A
+  test listing every business code went red on exactly those two, then the messages were added.
+- **Smaller mismatches between tests and spec.** A test name had a curly apostrophe where the spec
+  scenario has a straight one. A banner split across `<span>`s could not be found by its text.
+
+### Verification
+
+- **Red before each implementation task:**
+  - session, navigation, booking and appointments (earlier in the change);
+  - all 4 day-schedule tests;
+  - all 3 booking-for-a-customer tests;
+  - the 2 missing error messages.
+- **The accessibility tests passed at their first run.** That behaviour came from the earlier tasks:
+  - the keyboard-only booking, reached with Tab and operated with Enter and Space;
+  - errors announced in plain words;
+  - an unknown code, a `500` and an HTML `502` showing the request id.
+- **Browser check (task 8.3), headless Edge on the production build:**
+  - The sign-in page at 375 px seemed to overflow. The geometry matched a 500 px layout viewport,
+    Chromium's minimum window width, cropped to 375 px.
+  - Inside an iframe exactly 375 px wide, `scrollWidth` was 375 (no horizontal scroll), and the
+    card had 16 px gutters. At 1280 px the card is centred.
+  - The signed-in pages need Supabase keys in `frontend/.env.local`, which this machine does not
+    have. Checking them in a real browser is pending, together with task 10.4.
+- **Every scenario has a test.** The 28 scenarios of `specs/web-client` map to tests with the same
+  names.
+- **Frontend checks:**
+  - `npm --prefix frontend test`: `Test Files 13 passed (13)`, `Tests 98 passed (98)`;
+  - `npm --prefix frontend run typecheck`: clean;
+  - `npm --prefix frontend run build`: built, 336.74 kB of JS (105.87 kB gzip).
+- **OpenSpec:** `openspec validate --all --strict`: 13 passed, 0 failed.
+- **The backend is untouched:**
+  - `./mvnw clean test` exited 0;
+  - the Surefire XML reports total 341 tests, 0 failures, 0 errors, 0 skipped, the same 341 as
+    before this change;
+  - `git status` shows no change under `src/` or in `pom.xml`;
+  - the `.txt` summaries count only 236, because they leave out nested test classes. The XML
+    reports are the ones to quote.
